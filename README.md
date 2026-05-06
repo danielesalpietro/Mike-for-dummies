@@ -36,7 +36,7 @@ docker-compose up --build
 ### 3. Access
 Open your browser at: http://localhost:3000
 
-##🌟 Why this version?
+## 🌟 Why this version?
 Zero Dependency: LibreOffice (for document conversion) and Node.js are bundled inside the Docker containers. Your host machine stays clean.
 
 Smart Setup: The setup.py script handles the configuration for you, including automatic backups of your existing settings.
