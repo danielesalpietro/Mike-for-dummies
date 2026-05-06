@@ -24,13 +24,13 @@ This version is designed to get you up and running without touching a single lin
 Run the intelligent setup wizard. It will help you input your API keys (Supabase, R2, Gemini/Anthropic), fix common URL formatting errors, and create your `.env` files automatically.
 ```bash
 python setup.py
-
+```
 2. Launch
 Start the entire stack (Frontend + Backend) with one command:
 
-Bash
+```bash
 docker-compose up --build
-
+```
 3. Access
 Open your browser at: http://localhost:3000
 
