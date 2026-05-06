@@ -63,4 +63,6 @@ Local-First Version: Integration with local LLMs (NVIDIA NIM/Ollama) to keep leg
 
 Obsidian Support: Native Markdown (.md) support to bridge the gap between notes and case files.
 
-License: AGPL-3.0 (same as original)
+## License
+
+AGPL-3.0-only. See `LICENSE`.
