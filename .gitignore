@@ -11,8 +11,9 @@ build
 .env.*
 .env.local
 *.env
-# Eccezione: il file di esempio per docker (nessun segreto reale)
+# Exceptions: example/template files (no real secrets)
 !.env.docker
+!.env.docker.example
 # Backup files created by setup.py
 *.bck
 

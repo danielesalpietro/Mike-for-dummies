@@ -135,15 +135,21 @@ services:
     container_name: mike_backend
     restart: unless-stopped
     ports:
-      - "3001:3001"
-    env_file: ./backend/.env
+      - "${PORT:-3001}:${PORT:-3001}"
     environment:
+      # Infrastructure — auto-configured to point at local containers
       SUPABASE_URL: http://supabase-api:8000
       SUPABASE_SECRET_KEY: ${SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hj04zWl196z2-SBc0}
       R2_ENDPOINT_URL: http://minio:9000
       R2_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       R2_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       R2_BUCKET_NAME: ${R2_BUCKET_NAME:-mike}
+      # App settings — read from root .env
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      DOWNLOAD_SIGNING_SECRET: ${DOWNLOAD_SIGNING_SECRET:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      PORT: ${PORT:-3001}
     volumes:
       - ./backend:/app
       - /app/node_modules
@@ -162,10 +168,12 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
-    env_file: ./frontend/.env.local
     environment:
+      # Infrastructure — auto-configured to point at local containers
       NEXT_PUBLIC_SUPABASE_URL: http://localhost:${SUPABASE_PORT:-8000}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRFA0NiK7kyqd6500A8X60jjLa8SB8YnkJh5BQO5PbQ}
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRFA0NiK7kyqd6500A8X60jjLa8SB8YnkJh5BQO5PbQ}
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:${PORT:-3001}
     volumes:
       - ./frontend:/app
       - /app/node_modules

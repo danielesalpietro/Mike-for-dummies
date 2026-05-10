@@ -62,11 +62,12 @@ All services run locally via Docker:
 
 To start in self-hosted mode:
 ```bash
-cp .env.docker .env
+cp .env.docker.example .env
+# Open .env and fill in ANTHROPIC_API_KEY and/or GEMINI_API_KEY
 docker-compose up --build
 ```
 
-Default JWT keys and MinIO credentials are pre-configured in `.env.docker` (for local use only — do not use in production).
+Use `.env.docker.example` as your single reference — it documents every variable with inline comments. Default JWT keys and MinIO credentials are pre-configured; only the LLM API keys and `DOWNLOAD_SIGNING_SECRET` need to be filled in.
 
 MinIO console: `http://localhost:9001` (user: `minioadmin` / password: `minioadmin`)
 Local Supabase API: `http://localhost:8000`
