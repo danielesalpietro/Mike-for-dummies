@@ -44,13 +44,32 @@ Smart Setup: The setup.py script handles the configuration for you, including au
 Community Ready: Built for those who want to test Mike immediately without the "dependency hell."
 
 ## 🛠️ Requirements
-To use this Dockerized version, you still need the original external services:
 
-Supabase: For Auth and Database.
+### Modalità cloud (default)
+Richiede i servizi esterni originali:
 
-Cloudflare R2: For S3-compatible document storage.
+- **Supabase** — Auth e Database (hosted)
+- **Cloudflare R2** — Storage S3-compatibile per i documenti
+- **LLM Provider** — API key per Gemini o Anthropic
 
-LLM Provider: API keys for Gemini or Anthropic.
+### Modalità self-hosted (locale, nessun account esterno)
+Tutti i servizi girano in locale tramite Docker:
+
+- **PostgreSQL** — database via immagine `supabase/postgres`
+- **GoTrue** — autenticazione Supabase self-hosted
+- **PostgREST** — REST API sul database
+- **MinIO** — storage S3-compatibile in sostituzione di Cloudflare R2
+
+Per avviare in modalità self-hosted:
+```bash
+cp .env.docker .env
+docker-compose up --build
+```
+
+Le chiavi JWT e le credenziali MinIO di default sono già incluse in `.env.docker` (solo per uso locale — non usarle in produzione).
+
+La console MinIO è accessibile su `http://localhost:9001` (user: `minioadmin` / password: `minioadmin`).
+L'API Supabase locale è su `http://localhost:8000`.
 
 ## 📂 Credits & License
 This is a Dockerized distribution of the original Mike project. All credits for the application logic go to the original authors.
@@ -59,9 +78,9 @@ Dockerization & Wizard by: danielesalpietro
 
 
 ## 🚀 Roadmap (Coming Soon)
-Local-First Version: Integration with local LLMs (NVIDIA NIM/Ollama) to keep legal data 100% private.
-
-Obsidian Support: Native Markdown (.md) support to bridge the gap between notes and case files.
+- **Local-First Version** — integrazione con LLM locali (NVIDIA NIM/Ollama) per mantenere i dati legali 100% privati
+- **Obsidian Support** — supporto nativo Markdown (.md) per collegare note e fascicoli
+- **Mike-All-in-One** — versione con stack completamente self-hosted (nessuna dipendenza cloud)
 
 ## License
 
