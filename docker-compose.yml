@@ -55,7 +55,7 @@ services:
   supabase-rest:
     build:
       context: .
-      dockerfile: postgrest/postgrest/Dockerfile
+      dockerfile: postgrest/Dockerfile
     container_name: mike_supabase_rest
     restart: unless-stopped
     environment:
