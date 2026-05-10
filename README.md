@@ -45,31 +45,31 @@ Community Ready: Built for those who want to test Mike immediately without the "
 
 ## 🛠️ Requirements
 
-### Modalità cloud (default)
-Richiede i servizi esterni originali:
+### Cloud mode (default)
+Requires the following external services:
 
-- **Supabase** — Auth e Database (hosted)
-- **Cloudflare R2** — Storage S3-compatibile per i documenti
-- **LLM Provider** — API key per Gemini o Anthropic
+- **Supabase** — Auth and Database (hosted)
+- **Cloudflare R2** — S3-compatible document storage
+- **LLM Provider** — API key for Gemini or Anthropic
 
-### Modalità self-hosted (locale, nessun account esterno)
-Tutti i servizi girano in locale tramite Docker:
+### Self-hosted mode (fully local, no external accounts needed)
+All services run locally via Docker:
 
-- **PostgreSQL** — database via immagine `supabase/postgres`
-- **GoTrue** — autenticazione Supabase self-hosted
-- **PostgREST** — REST API sul database
-- **MinIO** — storage S3-compatibile in sostituzione di Cloudflare R2
+- **PostgreSQL** — database via `supabase/postgres` image
+- **GoTrue** — self-hosted Supabase authentication
+- **PostgREST** — REST API layer for the database
+- **MinIO** — S3-compatible storage replacing Cloudflare R2
 
-Per avviare in modalità self-hosted:
+To start in self-hosted mode:
 ```bash
 cp .env.docker .env
 docker-compose up --build
 ```
 
-Le chiavi JWT e le credenziali MinIO di default sono già incluse in `.env.docker` (solo per uso locale — non usarle in produzione).
+Default JWT keys and MinIO credentials are pre-configured in `.env.docker` (for local use only — do not use in production).
 
-La console MinIO è accessibile su `http://localhost:9001` (user: `minioadmin` / password: `minioadmin`).
-L'API Supabase locale è su `http://localhost:8000`.
+MinIO console: `http://localhost:9001` (user: `minioadmin` / password: `minioadmin`)
+Local Supabase API: `http://localhost:8000`
 
 ## 📂 Credits & License
 This is a Dockerized distribution of the original Mike project. All credits for the application logic go to the original authors.
@@ -78,9 +78,9 @@ Dockerization & Wizard by: danielesalpietro
 
 
 ## 🚀 Roadmap (Coming Soon)
-- **Local-First Version** — integrazione con LLM locali (NVIDIA NIM/Ollama) per mantenere i dati legali 100% privati
-- **Obsidian Support** — supporto nativo Markdown (.md) per collegare note e fascicoli
-- **Mike-All-in-One** — versione con stack completamente self-hosted (nessuna dipendenza cloud)
+- **Local-First Version** — integration with local LLMs (NVIDIA NIM/Ollama) to keep legal data 100% private
+- **Obsidian Support** — native Markdown (.md) support to bridge the gap between notes and case files
+- **Mike-All-in-One** — fully self-hosted stack with no cloud dependencies
 
 ## License
 
