@@ -1,19 +1,20 @@
 volumes:
-  postgres-data:
   minio-data:
 
 services:
 
   # ─── PostgreSQL (Supabase) ────────────────────────────────────────────────
   supabase-db:
-    image: supabase/postgres:15.8.1.060
+    build:
+      context: .
+      dockerfile: supabase/postgres/Dockerfile
     container_name: mike_supabase_db
     restart: unless-stopped
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: postgres
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ./supabase/postgres/data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -22,7 +23,9 @@ services:
 
   # ─── GoTrue (Supabase Auth) ───────────────────────────────────────────────
   supabase-auth:
-    image: supabase/gotrue:v2.168.0
+    build:
+      context: .
+      dockerfile: supabase/gotrue/Dockerfile
     container_name: mike_supabase_auth
     restart: unless-stopped
     environment:
@@ -50,7 +53,9 @@ services:
 
   # ─── PostgREST ────────────────────────────────────────────────────────────
   supabase-rest:
-    image: postgrest/postgrest:v12.2.0
+    build:
+      context: .
+      dockerfile: postgrest/postgrest/Dockerfile
     container_name: mike_supabase_rest
     restart: unless-stopped
     environment:
@@ -82,28 +87,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-
-  # ─── DB migration (runs schema once, after GoTrue has set up auth.*) ──────
-  db-migrate:
-    image: postgres:15-alpine
-    container_name: mike_db_migrate
-    restart: "no"
-    environment:
-      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
-    volumes:
-      - ./backend/migrations:/migrations:ro
-    command: >
-      sh -c "
-        echo 'Waiting for auth schema to be ready...';
-        sleep 15;
-        psql -h supabase-db -U postgres -d postgres -f /migrations/000_one_shot_schema.sql &&
-        echo 'Migration complete.'
-      "
-    depends_on:
-      supabase-auth:
-        condition: service_started
-      supabase-db:
-        condition: service_healthy
 
   # ─── MinIO (S3-compatible storage) ───────────────────────────────────────
   minio:
