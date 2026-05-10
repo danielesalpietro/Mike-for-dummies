@@ -1,24 +1,188 @@
+volumes:
+  postgres-data:
+  minio-data:
+
 services:
+
+  # ─── PostgreSQL (Supabase) ────────────────────────────────────────────────
+  supabase-db:
+    image: supabase/postgres:15.8.1.060
+    container_name: mike_supabase_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── GoTrue (Supabase Auth) ───────────────────────────────────────────────
+  supabase-auth:
+    image: supabase/gotrue:v2.168.0
+    container_name: mike_supabase_auth
+    restart: unless-stopped
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD:-postgres}@supabase-db:5432/postgres?search_path=auth
+      GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_SMTP_ADMIN_EMAIL: admin@example.com
+      GOTRUE_MAILER_URLPATHS_INVITE: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_RECOVERY: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /auth/v1/verify
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+
+  # ─── PostgREST ────────────────────────────────────────────────────────────
+  supabase-rest:
+    image: postgrest/postgrest:v12.2.0
+    container_name: mike_supabase_rest
+    restart: unless-stopped
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD:-postgres}@supabase-db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
+      PGRST_APP_SETTINGS_JWT_EXP: 3600
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+
+  # ─── nginx API gateway (routes /auth/v1 → GoTrue, /rest/v1 → PostgREST) ──
+  supabase-api:
+    image: nginx:alpine
+    container_name: mike_supabase_api
+    restart: unless-stopped
+    ports:
+      - "${SUPABASE_PORT:-8000}:8000"
+    volumes:
+      - ./supabase/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - supabase-auth
+      - supabase-rest
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/auth/v1/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─── DB migration (runs schema once, after GoTrue has set up auth.*) ──────
+  db-migrate:
+    image: postgres:15-alpine
+    container_name: mike_db_migrate
+    restart: "no"
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - ./backend/migrations:/migrations:ro
+    command: >
+      sh -c "
+        echo 'Waiting for auth schema to be ready...';
+        sleep 15;
+        psql -h supabase-db -U postgres -d postgres -f /migrations/000_one_shot_schema.sql &&
+        echo 'Migration complete.'
+      "
+    depends_on:
+      supabase-auth:
+        condition: service_started
+      supabase-db:
+        condition: service_healthy
+
+  # ─── MinIO (S3-compatible storage) ───────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: mike_minio
+    restart: unless-stopped
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── MinIO bucket setup (crea il bucket 'mike' al primo avvio) ───────────
+  minio-setup:
+    image: minio/mc:latest
+    container_name: mike_minio_setup
+    restart: "no"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${R2_BUCKET_NAME:-mike}
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+        mc mb --ignore-existing local/$${MINIO_BUCKET};
+        echo 'Bucket ready: '$${MINIO_BUCKET};
+      "
+
+  # ─── Backend ──────────────────────────────────────────────────────────────
   mike-backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: mike_backend
+    restart: unless-stopped
     ports:
       - "3001:3001"
     env_file: ./backend/.env
+    environment:
+      SUPABASE_URL: http://supabase-api:8000
+      SUPABASE_SECRET_KEY: ${SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hj04zWl196z2-SBc0}
+      R2_ENDPOINT_URL: http://minio:9000
+      R2_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      R2_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME:-mike}
     volumes:
       - ./backend:/app
       - /app/node_modules
+    depends_on:
+      supabase-api:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
 
+  # ─── Frontend ─────────────────────────────────────────────────────────────
   mike-frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: mike_frontend
+    restart: unless-stopped
     ports:
       - "3000:3000"
     env_file: ./frontend/.env.local
+    environment:
+      NEXT_PUBLIC_SUPABASE_URL: http://localhost:${SUPABASE_PORT:-8000}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRFA0NiK7kyqd6500A8X60jjLa8SB8YnkJh5BQO5PbQ}
     volumes:
       - ./frontend:/app
       - /app/node_modules
