@@ -34,5 +34,4 @@ __pycache__/
 docker-volumes/
 
 # Persistent data folders (bind mounts) — keep .gitkeep, ignore contents
-supabase/postgres/data/*
-!supabase/postgres/data/.gitkeep
+supabase/postgres/data/pgdata/
