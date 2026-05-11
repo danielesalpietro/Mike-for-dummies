@@ -1,4 +1,4 @@
-FROM supabase/postgres:15.8.1.060
+FROM --platform=linux/amd64 supabase/postgres:15.8.1.060
 
 # Copy the app schema so it runs automatically on first DB init.
 # The supabase/postgres base image sets up the auth.* schema before
