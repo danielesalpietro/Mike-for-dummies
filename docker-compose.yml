@@ -3,12 +3,14 @@ volumes:
 
 services:
 
-  # ─── PostgreSQL (Supabase) ────────────────────────────────────────────────
+  # ─── PostgreSQL ───────────────────────────────────────────────────────────
+  # Uses postgres:15-alpine (multi-arch) instead of supabase/postgres so it
+  # runs on both Intel and ARM without emulation. The init script creates the
+  # Supabase roles (anon, authenticated, authenticator, supabase_auth_admin).
   supabase-db:
     build:
       context: .
       dockerfile: supabase/postgres/Dockerfile
-    platform: linux/amd64
     container_name: mike_supabase_db
     restart: unless-stopped
     environment:
@@ -89,6 +91,30 @@ services:
       timeout: 5s
       retries: 10
 
+  # ─── DB migration ─────────────────────────────────────────────────────────
+  # Runs the app schema after GoTrue has finished populating auth.*.
+  db-migrate:
+    image: postgres:15-alpine
+    container_name: mike_db_migrate
+    restart: "no"
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - ./backend/migrations:/migrations:ro
+    command: >
+      sh -c "
+        echo 'Waiting for GoTrue to finish auth migrations...';
+        sleep 20;
+        psql -h supabase-db -U postgres -d postgres
+             -f /migrations/000_one_shot_schema.sql &&
+        echo 'App schema applied.'
+      "
+    depends_on:
+      supabase-auth:
+        condition: service_started
+      supabase-db:
+        condition: service_healthy
+
   # ─── MinIO (S3-compatible storage) ───────────────────────────────────────
   minio:
     image: minio/minio:latest
@@ -109,7 +135,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ─── MinIO bucket setup (crea il bucket 'mike' al primo avvio) ───────────
+  # ─── MinIO bucket setup ───────────────────────────────────────────────────
   minio-setup:
     image: minio/mc:latest
     container_name: mike_minio_setup
@@ -138,14 +164,12 @@ services:
     ports:
       - "${PORT:-3001}:${PORT:-3001}"
     environment:
-      # Infrastructure — auto-configured to point at local containers
       SUPABASE_URL: http://supabase-api:8000
       SUPABASE_SECRET_KEY: ${SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hj04zWl196z2-SBc0}
       R2_ENDPOINT_URL: http://minio:9000
       R2_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       R2_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       R2_BUCKET_NAME: ${R2_BUCKET_NAME:-mike}
-      # App settings — read from root .env
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       DOWNLOAD_SIGNING_SECRET: ${DOWNLOAD_SIGNING_SECRET:-}
@@ -170,7 +194,6 @@ services:
     ports:
       - "3000:3000"
     environment:
-      # Infrastructure — auto-configured to point at local containers
       NEXT_PUBLIC_SUPABASE_URL: http://localhost:${SUPABASE_PORT:-8000}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRFA0NiK7kyqd6500A8X60jjLa8SB8YnkJh5BQO5PbQ}
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRFA0NiK7kyqd6500A8X60jjLa8SB8YnkJh5BQO5PbQ}

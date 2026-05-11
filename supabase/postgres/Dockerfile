@@ -1,8 +1,9 @@
-FROM --platform=linux/amd64 supabase/postgres:15.8.1.060
+FROM postgres:15-alpine
 
-# Copy the app schema so it runs automatically on first DB init.
-# The supabase/postgres base image sets up the auth.* schema before
-# any scripts in /docker-entrypoint-initdb.d/ are executed, so
-# referencing auth.users here is safe.
-COPY ../../backend/migrations/000_one_shot_schema.sql \
-     /docker-entrypoint-initdb.d/001_app_schema.sql
+# Install pgcrypto (needed by the app schema — gen_random_uuid, etc.)
+RUN apk add --no-cache postgresql-contrib
+
+# 01_roles.sh creates the Supabase roles (anon, authenticated, authenticator,
+# supabase_auth_admin) that GoTrue and PostgREST expect to find.
+COPY supabase/postgres/init/01_roles.sh /docker-entrypoint-initdb.d/01_roles.sh
+RUN chmod +x /docker-entrypoint-initdb.d/01_roles.sh
