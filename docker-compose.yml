@@ -55,12 +55,6 @@ services:
     depends_on:
       supabase-db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 9999 || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 15s
 
   # ─── PostgREST ────────────────────────────────────────────────────────────
   supabase-rest:
@@ -80,12 +74,6 @@ services:
     depends_on:
       supabase-db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 3000 || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
 
   # ─── nginx API gateway (routes /auth/v1 → GoTrue, /rest/v1 → PostgREST) ──
   supabase-api:
@@ -97,15 +85,14 @@ services:
     volumes:
       - ./supabase/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
-      supabase-auth:
-        condition: service_healthy
-      supabase-rest:
-        condition: service_healthy
+      - supabase-auth
+      - supabase-rest
     healthcheck:
-      test: ["CMD-SHELL", "nc -z localhost 8000 || exit 1"]
-      interval: 5s
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/auth/v1/health || exit 1"]
+      interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 30
+      start_period: 60s
 
   # ─── DB migration ─────────────────────────────────────────────────────────
   # Runs the app schema after GoTrue has finished populating auth.*.
