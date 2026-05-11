@@ -103,14 +103,10 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - ./backend/migrations:/migrations:ro
-    command: >
-      sh -c "
-        echo 'Waiting for GoTrue to finish auth migrations...';
-        sleep 20;
-        psql -h supabase-db -U postgres -d postgres
-             -f /migrations/000_one_shot_schema.sql &&
-        echo 'App schema applied.'
-      "
+    command:
+      - sh
+      - -c
+      - "echo 'Waiting for GoTrue to finish auth migrations...' && sleep 20 && psql -h supabase-db -U postgres -d postgres -f /migrations/000_one_shot_schema.sql && echo 'App schema applied.'"
     depends_on:
       supabase-auth:
         condition: service_started
