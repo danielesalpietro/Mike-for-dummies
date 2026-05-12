@@ -1,5 +1,7 @@
 volumes:
   minio-data:
+  frontend-node-modules:
+  backend-node-modules:
 
 services:
 
@@ -168,7 +170,7 @@ services:
       PORT: ${PORT:-3001}
     volumes:
       - ./backend:/app
-      - /app/node_modules
+      - backend-node-modules:/app/node_modules
     depends_on:
       supabase-api:
         condition: service_started
@@ -191,6 +193,6 @@ services:
       NEXT_PUBLIC_API_BASE_URL: http://localhost:${PORT:-3001}
     volumes:
       - ./frontend:/app
-      - /app/node_modules
+      - frontend-node-modules:/app/node_modules
     depends_on:
       - mike-backend
