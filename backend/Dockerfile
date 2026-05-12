@@ -12,7 +12,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Usiamo lo stesso flag anche qui
-RUN npm install --legacy-peer-deps
+RUN npm install --legacy-peer-deps && npm cache clean --force
 
 COPY . .
 

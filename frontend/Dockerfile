@@ -11,7 +11,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Il flag magico per risolvere il tuo errore ERESOLVE
-RUN npm install --legacy-peer-deps
+RUN npm install --legacy-peer-deps && npm cache clean --force
 
 COPY . .
 
