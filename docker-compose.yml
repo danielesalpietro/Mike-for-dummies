@@ -4,9 +4,6 @@ volumes:
 services:
 
   # ─── PostgreSQL ───────────────────────────────────────────────────────────
-  # Uses postgres:15-alpine (multi-arch) instead of supabase/postgres so it
-  # runs on both Intel and ARM without emulation. The init script creates the
-  # Supabase roles (anon, authenticated, authenticator, supabase_auth_admin).
   supabase-db:
     build:
       context: .
@@ -76,6 +73,8 @@ services:
         condition: service_healthy
 
   # ─── nginx API gateway (routes /auth/v1 → GoTrue, /rest/v1 → PostgREST) ──
+  # No healthcheck here — GoTrue takes variable time to run its own migrations.
+  # mike-backend uses restart: unless-stopped to recover if it starts too early.
   supabase-api:
     image: nginx:alpine
     container_name: mike_supabase_api
@@ -87,15 +86,8 @@ services:
     depends_on:
       - supabase-auth
       - supabase-rest
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/auth/v1/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 60s
 
   # ─── DB migration ─────────────────────────────────────────────────────────
-  # Runs the app schema after GoTrue has finished populating auth.*.
   db-migrate:
     image: postgres:15-alpine
     container_name: mike_db_migrate
@@ -178,8 +170,7 @@ services:
       - ./backend:/app
       - /app/node_modules
     depends_on:
-      supabase-api:
-        condition: service_healthy
+      - supabase-api
       minio:
         condition: service_healthy
 
