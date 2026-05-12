@@ -170,7 +170,8 @@ services:
       - ./backend:/app
       - /app/node_modules
     depends_on:
-      - supabase-api
+      supabase-api:
+        condition: service_started
       minio:
         condition: service_healthy
 
