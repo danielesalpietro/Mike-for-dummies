@@ -1,0 +1,14 @@
+name: mike-backend
+description: "Backend Node.js per il progetto Mike - porta 3001"
+config:
+  limits.cpu: "2"
+  limits.memory: 2GB
+devices:
+  app:
+    source: SOURCE_PATH/backend
+    path: /app
+    type: disk
+  port3001:
+    listen: tcp:0.0.0.0:3001
+    connect: tcp:127.0.0.1:3001
+    type: proxy

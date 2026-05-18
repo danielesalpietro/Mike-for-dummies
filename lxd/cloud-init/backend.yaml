@@ -1,0 +1,34 @@
+#cloud-config
+packages:
+  - python3
+  - make
+  - g++
+  - libreoffice
+  - curl
+  - ca-certificates
+
+runcmd:
+  - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  - apt-get install -y nodejs
+  - cd /app && npm install --legacy-peer-deps
+  - systemctl enable mike-backend.service
+  - systemctl start mike-backend.service
+
+write_files:
+  - path: /etc/systemd/system/mike-backend.service
+    content: |
+      [Unit]
+      Description=Mike Backend (Node.js dev server)
+      After=network.target
+
+      [Service]
+      Type=simple
+      WorkingDirectory=/app
+      ExecStart=/usr/bin/npm run dev
+      Restart=on-failure
+      RestartSec=5
+      StandardOutput=journal
+      StandardError=journal
+
+      [Install]
+      WantedBy=multi-user.target

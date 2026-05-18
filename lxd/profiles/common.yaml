@@ -1,0 +1,13 @@
+name: mike-common
+description: "Profilo base condiviso per il progetto Mike"
+config: {}
+devices:
+  eth0:
+    name: eth0
+    network: lxdbr0
+    type: nic
+  root:
+    path: /
+    pool: default
+    size: 10GB
+    type: disk
