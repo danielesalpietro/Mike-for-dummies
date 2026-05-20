@@ -1,68 +1,205 @@
-# Mike
+# Mike for Dummies
 
-Open-source release containing the Mike frontend and backend.
+**Mike Legal Assistant — Private AI, 100% Open Source.**
+Assistente legale AI che gira interamente sulla tua infrastruttura, senza dati che escono dalla tua rete.
 
-## Contents
-
-- `frontend/` - Next.js application
-- `backend/` - Express API, Supabase access, document processing, and migrations
-- `backend/migrations/000_one_shot_schema.sql` - one-shot Supabase schema for fresh databases
-
-## Setup
-
-# 🚀 Mike-for-dummies
-
-**The 60-second Dockerized version of Mike Legal Assistant.** This repository provides a streamlined, containerized setup of the original Mike project. No need to manually install Node.js, LibreOffice, or manage complex environment variables—just Docker and a simple wizard.
+Due modalità di deployment:
+- **Docker** — per sviluppo rapido su qualsiasi macchina
+- **LXD su MicroCloud** — per produzione su infrastruttura privata Ubuntu
 
 ---
 
-## 🏗️ Quick Start
+## Contenuto del repository
 
-This version is designed to get you up and running without touching a single line of code.
+| Cartella/File | Descrizione |
+|---|---|
+| `frontend/` | Applicazione Next.js |
+| `backend/` | API Express, integrazione Supabase, elaborazione documenti |
+| `backend/migrations/` | Schema SQL Supabase per nuovi database |
+| `docker-compose.yml` | Stack Docker per sviluppo locale |
+| `setup.py` | Wizard interattivo per la configurazione dei file `.env` |
+| `lxd/` | Profili e script per deployment su LXD/MicroCloud |
 
-### 1. Configure
-Run the intelligent setup wizard. It will help you input your API keys (Supabase, R2, Gemini/Anthropic), fix common URL formatting errors, and create your `.env` files automatically.
+---
+
+## Modalità 1 — Docker (sviluppo locale)
+
+### Requisiti
+- Docker e Docker Compose
+- Credenziali per i servizi esterni (vedi sotto)
+
+### Avvio
+
+```bash
+# 1. Configura i file .env
+python setup.py
+
+# 2. Avvia lo stack
+docker compose up --build
+
+# 3. Apri il browser
+# http://localhost:3000
+```
+
+---
+
+## Modalità 2 — LXD su MicroCloud (infrastruttura privata)
+
+Questa modalità sostituisce completamente Docker: ogni servizio gira in un container LXD nativo Ubuntu, senza Docker installato sull'host. Ideale per deployment su server privato con MicroCloud.
+
+### Stack hardware/software testato
+
+```
+Windows 10 Pro
+  └── VMware Workstation
+        └── Ubuntu 24.04 LTS (VM)
+              └── MicroCloud + LXD
+                    ├── Container: mike-backend  (Node.js + Express, porta 3001)
+                    └── Container: mike-frontend (Next.js, porta 3000)
+```
+
+### Requisiti
+
+- Ubuntu 22.04+ con LXD inizializzato (`lxd init`)
+- MicroCloud configurato (rete fan `lxdfan0`, storage pool `local` su ZFS)
+- Node.js **non** necessario sull'host (installato nel container da cloud-init)
+- Repository clonato su filesystem locale (non NFS/FUSE)
+
+### Configurazione prima dell'avvio
+
+**1. Configura i file `.env`**
+
 ```bash
 python setup.py
+# oppure manualmente:
+nano backend/.env
+nano frontend/.env.local
 ```
 
-### 2. Launch
-Start the entire stack (Frontend + Backend) with one command:
+Variabili necessarie nel `backend/.env`:
+```
+FRONTEND_URL=http://<IP-HOST>:3000   # IP dell'host Ubuntu, es. 192.168.1.10
+```
+
+Variabili necessarie nel `frontend/.env.local`:
+```
+NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=sb_publishable_...
+SUPABASE_SECRET_KEY=sb_secret_...
+NEXT_PUBLIC_API_BASE_URL=http://<IP-HOST>:3001
+```
+
+> **Importante:** usa sempre l'IP reale dell'host (es. `192.168.206.140`), mai `localhost`, perché il browser degli utenti deve raggiungere i servizi dalla rete.
+
+**2. Adatta i profili LXD al tuo ambiente** (solo prima installazione)
+
+Verifica rete e storage disponibili:
+```bash
+lxc network list   # cerca la rete bridge gestita da LXD
+lxc storage list   # cerca il pool di storage
+```
+
+Aggiorna `lxd/profiles/common.yaml` con i valori trovati:
+```yaml
+devices:
+  eth0:
+    network: lxdfan0   # sostituisci con il nome della tua rete
+    type: nic
+  root:
+    pool: local        # sostituisci con il nome del tuo pool
+    type: disk
+```
+
+### Avvio
 
 ```bash
-docker-compose up --build
+cd lxd/
+./launch.sh            # avvia backend + frontend
+./launch.sh backend    # avvia solo il backend
+./launch.sh frontend   # avvia solo il frontend
 ```
 
-### 3. Access
-Open your browser at: http://localhost:3000
+Lo script esegue in automatico:
+1. Crea i profili LXD (`mike-common`, `mike-backend`, `mike-frontend`)
+2. Lancia due container `ubuntu:22.04`
+3. cloud-init installa Node.js 20, dipendenze di sistema e LibreOffice (backend)
+4. Monta il codice sorgente nei container via disk device (`shift=true` per i permessi)
+5. Esegue `npm install` dentro ogni container
+6. Legge i file `.env` e inietta le variabili d'ambiente
+7. Avvia i dev server come servizi systemd
 
-## 🌟 Why this version?
-Zero Dependency: LibreOffice (for document conversion) and Node.js are bundled inside the Docker containers. Your host machine stays clean.
+### Accesso
 
-Smart Setup: The setup.py script handles the configuration for you, including automatic backups of your existing settings.
+```
+http://<IP-HOST>:3000   ← Frontend (Next.js)
+http://<IP-HOST>:3001   ← Backend  (Express API)
+```
 
-Community Ready: Built for those who want to test Mike immediately without the "dependency hell."
+### Gestione quotidiana
 
-## 🛠️ Requirements
-To use this Dockerized version, you still need the original external services:
+```bash
+# Stato container
+lxc list mike-
 
-Supabase: For Auth and Database.
+# Log in tempo reale
+lxc exec mike-backend  -- journalctl -fu mike-backend.service
+lxc exec mike-frontend -- journalctl -fu mike-frontend.service
 
-Cloudflare R2: For S3-compatible document storage.
+# Shell dentro un container
+lxc exec mike-backend  -- bash
+lxc exec mike-frontend -- bash
 
-LLM Provider: API keys for Gemini or Anthropic.
+# Aggiornare il codice (i bind-mount riflettono subito le modifiche)
+git pull
+# i watcher tsx/Next.js rilevano i cambiamenti automaticamente
 
-## 📂 Credits & License
-This is a Dockerized distribution of the original Mike project. All credits for the application logic go to the original authors.
+# Spegnere tutto
+./teardown.sh
+```
 
-Dockerization & Wizard by: danielesalpietro
+### Mappatura Docker → LXD
 
+| `docker-compose.yml` | LXD |
+|---|---|
+| `FROM node:20-bullseye-slim` | `lxc launch ubuntu:22.04` + NodeSource 20 via cloud-init |
+| `RUN apt-get install ...` | cloud-init `packages` + `runcmd` |
+| `volumes: ./backend:/app` | `disk` device con `shift=true` |
+| `ports: "3001:3001"` | `proxy` device |
+| `env_file:` | `lxc config set environment.*` |
+| `CMD ["npm", "run", "dev"]` | systemd unit `mike-backend.service` |
+| `depends_on:` | ordine sequenziale in `launch.sh` |
 
-## 🚀 Roadmap (Coming Soon)
-Local-First Version: Integration with local LLMs (NVIDIA NIM/Ollama) to keep legal data 100% private.
+---
 
-Obsidian Support: Native Markdown (.md) support to bridge the gap between notes and case files.
+## Servizi esterni richiesti
 
-## License
+Entrambe le modalità (Docker e LXD) richiedono:
 
-AGPL-3.0-only. See `LICENSE`.
+| Servizio | Uso |
+|---|---|
+| **Supabase** | Autenticazione e database |
+| **Cloudflare R2** | Storage documenti (S3-compatible) |
+| **Anthropic / Gemini** | LLM per le risposte AI |
+
+> **Roadmap:** integrazione con LLM locali (Ollama) per operatività 100% air-gapped, senza dipendenze da API esterne.
+
+---
+
+## Perché LXD invece di Docker?
+
+- **Isolamento reale:** ogni servizio è una VM leggera Ubuntu, non un processo containerizzato
+- **Systemd nativo:** i servizi si gestiscono con `systemctl`, come qualsiasi processo Linux
+- **Integrazione MicroCloud:** storage Ceph distribuito, rete OVN, clustering multi-nodo
+- **Nessun Docker daemon:** superficie d'attacco ridotta, nessuna dipendenza da Docker socket
+- **Private AI:** tutto il codice, i dati e i modelli rimangono nella tua infrastruttura
+
+---
+
+## Crediti e Licenza
+
+Basato sul progetto originale [Mike](https://github.com/Brudanstudio/mike).
+
+LXD deployment & wizard: [danielesalpietro](https://github.com/danielesalpietro)
+
+Licenza: **AGPL-3.0-only** — vedi `LICENSE`.
+
