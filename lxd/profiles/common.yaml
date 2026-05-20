@@ -4,10 +4,10 @@ config: {}
 devices:
   eth0:
     name: eth0
-    network: lxdbr0
+    network: lxdfan0
     type: nic
   root:
     path: /
-    pool: default
+    pool: local
     size: 10GB
     type: disk

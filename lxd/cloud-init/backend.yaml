@@ -10,9 +10,6 @@ packages:
 runcmd:
   - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   - apt-get install -y nodejs
-  - cd /app && npm install --legacy-peer-deps
-  - systemctl enable mike-backend.service
-  - systemctl start mike-backend.service
 
 write_files:
   - path: /etc/systemd/system/mike-backend.service
