@@ -1,6 +1,213 @@
 # Mike for Dummies
 
 **Mike Legal Assistant — Private AI, 100% Open Source.**
+A self-hosted AI legal assistant that runs entirely on your own infrastructure. No data leaves your network.
+
+Two deployment modes:
+- **Docker** — quick setup on any machine
+- **LXD on MicroCloud** — production deployment on private Ubuntu infrastructure
+
+---
+
+## Repository Structure
+
+| Path | Description |
+|---|---|
+| `frontend/` | Next.js application |
+| `backend/` | Express API, Supabase integration, document processing |
+| `backend/migrations/` | Supabase SQL schema for fresh databases |
+| `docker-compose.yml` | Docker stack for local development |
+| `setup.py` | Interactive wizard to generate `.env` files |
+| `lxd/` | LXD profiles and launch scripts for MicroCloud deployment |
+
+---
+
+## Mode 1 — Docker (local development)
+
+### Requirements
+- Docker and Docker Compose
+- Credentials for external services (see below)
+
+### Quick Start
+
+```bash
+# 1. Configure environment files
+python setup.py
+
+# 2. Start the stack
+docker compose up --build
+
+# 3. Open your browser
+# http://localhost:3000
+```
+
+---
+
+## Mode 2 — LXD on MicroCloud (private infrastructure)
+
+This mode replaces Docker entirely. Each service runs in a native Ubuntu LXD container — no Docker installed on the host. Designed for private server deployment with MicroCloud.
+
+### Tested Stack
+
+```
+Windows 10 Pro
+  └── VMware Workstation
+        └── Ubuntu 24.04 LTS (VM)
+              └── MicroCloud + LXD
+                    ├── Container: mike-backend  (Node.js + Express, port 3001)
+                    └── Container: mike-frontend (Next.js, port 3000)
+```
+
+### Requirements
+
+- Ubuntu 22.04+ with LXD initialized (`lxd init`)
+- MicroCloud configured (fan network `lxdfan0`, ZFS storage pool `local`)
+- Node.js **not required** on the host (installed inside containers by cloud-init)
+- Repository cloned on a local filesystem (not NFS/FUSE)
+
+### Configuration
+
+**1. Set up environment files**
+
+```bash
+python setup.py
+# or manually:
+nano backend/.env
+nano frontend/.env.local
+```
+
+Required in `backend/.env`:
+```
+FRONTEND_URL=http://<HOST-IP>:3000   # Ubuntu host IP, e.g. 192.168.1.10
+```
+
+Required in `frontend/.env.local`:
+```
+NEXT_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=sb_publishable_...
+SUPABASE_SECRET_KEY=sb_secret_...
+NEXT_PUBLIC_API_BASE_URL=http://<HOST-IP>:3001
+```
+
+> **Important:** always use the real host IP (e.g. `192.168.206.140`), never `localhost` — the browser needs to reach both services over the network.
+
+**2. Adapt LXD profiles to your environment** (first run only)
+
+Check available network and storage:
+```bash
+lxc network list   # find the LXD-managed bridge network
+lxc storage list   # find the storage pool
+```
+
+Update `lxd/profiles/common.yaml` with your values:
+```yaml
+devices:
+  eth0:
+    network: lxdfan0   # replace with your network name
+    type: nic
+  root:
+    pool: local        # replace with your storage pool name
+    type: disk
+```
+
+### Launch
+
+```bash
+cd lxd/
+./launch.sh            # start backend + frontend
+./launch.sh backend    # start backend only
+./launch.sh frontend   # start frontend only
+```
+
+The script automatically:
+1. Creates LXD profiles (`mike-common`, `mike-backend`, `mike-frontend`)
+2. Launches two `ubuntu:22.04` containers
+3. cloud-init installs Node.js 20, build tools, and LibreOffice (backend only)
+4. Mounts source code into containers via disk device (`shift=true` for permissions)
+5. Runs `npm install` inside each container
+6. Reads `.env` files and injects environment variables
+7. Starts dev servers as systemd services
+
+### Access
+
+```
+http://<HOST-IP>:3000   ← Frontend (Next.js)
+http://<HOST-IP>:3001   ← Backend  (Express API)
+```
+
+### Daily Operations
+
+```bash
+# Container status
+lxc list mike-
+
+# Live logs
+lxc exec mike-backend  -- journalctl -fu mike-backend.service
+lxc exec mike-frontend -- journalctl -fu mike-frontend.service
+
+# Shell into a container
+lxc exec mike-backend  -- bash
+lxc exec mike-frontend -- bash
+
+# Update code (bind-mounts reflect changes immediately)
+git pull
+# tsx watch / Next.js detect file changes automatically
+
+# Stop everything
+./teardown.sh
+```
+
+### Docker → LXD Mapping
+
+| `docker-compose.yml` | LXD equivalent |
+|---|---|
+| `FROM node:20-bullseye-slim` | `lxc launch ubuntu:22.04` + NodeSource 20 via cloud-init |
+| `RUN apt-get install ...` | cloud-init `packages` + `runcmd` |
+| `volumes: ./backend:/app` | `disk` device with `shift=true` |
+| `ports: "3001:3001"` | `proxy` device |
+| `env_file:` | `lxc config set environment.*` |
+| `CMD ["npm", "run", "dev"]` | systemd unit `mike-backend.service` |
+| `depends_on:` | sequential order in `launch.sh` |
+
+---
+
+## Required External Services
+
+Both deployment modes require:
+
+| Service | Purpose |
+|---|---|
+| **Supabase** | Authentication and database |
+| **Cloudflare R2** | S3-compatible document storage |
+| **Anthropic / Gemini** | LLM API for AI responses |
+
+> **Roadmap:** local LLM integration via Ollama for fully air-gapped operation with no external API dependencies.
+
+---
+
+## Why LXD instead of Docker?
+
+- **Real isolation:** each service is a lightweight Ubuntu system, not just a namespaced process
+- **Native systemd:** manage services with `systemctl` like any Linux process
+- **MicroCloud integration:** distributed Ceph storage, OVN networking, multi-node clustering
+- **No Docker daemon:** reduced attack surface, no dependency on the Docker socket
+- **Private AI:** all code, data, and models stay within your own infrastructure
+
+---
+
+## Credits & License
+
+Based on the original [Mike](https://github.com/Brudanstudio/mike) project.
+
+LXD deployment & setup wizard: [danielesalpietro](https://github.com/danielesalpietro)
+
+License: **AGPL-3.0-only** — see `LICENSE`.
+
+# ITALIAN 
+
+# Mike for Dummies
+
+**Mike Legal Assistant — Private AI, 100% Open Source.**
 Assistente legale AI che gira interamente sulla tua infrastruttura, senza dati che escono dalla tua rete.
 
 Due modalità di deployment:
