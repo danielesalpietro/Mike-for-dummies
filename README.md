@@ -173,15 +173,13 @@ git pull
 
 ## Required External Services
 
-Both deployment modes require:
+Both deployment modes currently require:
 
 | Service | Purpose |
 |---|---|
 | **Supabase** | Authentication and database |
 | **Cloudflare R2** | S3-compatible document storage |
 | **Anthropic / Gemini** | LLM API for AI responses |
-
-> **Roadmap:** local LLM integration via Ollama for fully air-gapped operation with no external API dependencies.
 
 ---
 
@@ -195,6 +193,103 @@ Both deployment modes require:
 
 ---
 
+## Roadmap — Towards Full Air-Gap
+
+### MicroCeph RGW — Replacing Cloudflare R2 with on-premise S3
+
+MicroCloud ships with **MicroCeph**, a fully managed Ceph cluster that includes
+**RGW (RADOS Gateway)** — a 100% S3-compatible object storage API. Enabling it
+removes the last cloud dependency for document storage: all files stay on your
+own hardware, on the same HCI infrastructure already running the containers.
+
+**Enable RGW on MicroCeph:**
+```bash
+microceph enable rgw
+microceph status   # should show: Services: mds, mgr, mon, rgw, osd
+```
+
+**Create a user and bucket:**
+```bash
+microceph.radosgw-admin user create \
+  --uid=mike \
+  --display-name="Mike Legal Assistant" \
+  --access-key=<your-access-key> \
+  --secret-key=<your-secret-key>
+
+aws --endpoint-url http://<HOST-IP>:7480 s3 mb s3://mike-documents
+```
+
+**Update `backend/.env`** — only the endpoint and credentials change,
+the rest of the backend S3 code is untouched:
+```
+R2_ENDPOINT=http://<HOST-IP>:7480
+R2_ACCESS_KEY_ID=<your-access-key>
+R2_SECRET_ACCESS_KEY=<your-secret-key>
+R2_BUCKET_NAME=mike-documents
+```
+
+---
+
+### Data Migration from Cloudflare R2 to MicroCeph — and Enterprise DR
+
+Moving from a cloud S3 bucket to the local MicroCeph RGW requires a live data
+migration. The same procedure doubles as a **Disaster Recovery replication
+strategy** for enterprise environments: run it on a schedule to keep an
+on-premise replica in sync with any S3-compatible source.
+
+**Tool: `rclone`** — server-side copy, nothing passes through your PC.
+
+```bash
+apt install rclone -y
+rclone config
+```
+
+Configure two remotes:
+
+| Remote | Type | Endpoint |
+|---|---|---|
+| `r2` | S3 / Cloudflare | `https://xxxx.r2.cloudflarestorage.com` |
+| `ceph` | S3 / Other | `http://<HOST-IP>:7480` |
+
+**Verify before copying:**
+```bash
+rclone size r2:mike-documents          # count objects and size at source
+rclone ls   r2:mike-documents | head   # inspect file list
+```
+
+**Dry run, then copy:**
+```bash
+rclone copy --dry-run --progress r2:mike-documents ceph:mike-documents
+rclone copy           --progress r2:mike-documents ceph:mike-documents
+```
+
+**Verify integrity:**
+```bash
+rclone check r2:mike-documents ceph:mike-documents
+# zero differences = safe to switch
+```
+
+**Switch the backend only after a clean check:**
+```bash
+# Update backend/.env with the new endpoint, then:
+lxc exec mike-backend -- systemctl restart mike-backend.service
+```
+
+**Enterprise DR pattern** — run `rclone sync` on a cron job to keep the
+MicroCeph bucket continuously aligned with any upstream S3 source (cloud or
+another data centre). In a failover scenario, point `R2_ENDPOINT` to the local
+RGW and restart the backend — RTO measured in seconds.
+
+```bash
+# Example: nightly sync at 02:00
+0 2 * * * rclone sync r2:mike-documents ceph:mike-documents --log-file /var/log/rclone-mike.log
+```
+
+> Keep the original R2 bucket active for a few days after switching — treat it
+> as a fallback until the new endpoint is confirmed stable in production.
+
+---
+
 ## Credits & License
 
 Based on the original [Mike](https://github.com/Brudanstudio/mike) project.
@@ -202,6 +297,7 @@ Based on the original [Mike](https://github.com/Brudanstudio/mike) project.
 LXD deployment & setup wizard: [danielesalpietro](https://github.com/danielesalpietro)
 
 License: **AGPL-3.0-only** — see `LICENSE`.
+
 
 # ITALIAN 
 
