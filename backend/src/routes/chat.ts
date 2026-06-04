@@ -13,6 +13,7 @@ import {
 import { completeText } from "../lib/llm";
 import { getUserApiKeys, getUserModelSettings } from "../lib/userSettings";
 import { checkProjectAccess } from "../lib/access";
+import { searchMemories, addMemories } from "../lib/memory";
 
 export const chatRouter = Router();
 
@@ -400,6 +401,13 @@ chatRouter.post("/", requireAuth, async (req, res) => {
         });
     }
 
+    const userQuery = lastUser?.content ?? "";
+    const relevantMemories = await searchMemories(userQuery, `chat_${chatId}`);
+    const memoryExtra =
+        relevantMemories.length > 0
+            ? `\n\nUSER MEMORY (facts remembered from past sessions):\n${relevantMemories.map((m) => `- ${m}`).join("\n")}`
+            : undefined;
+
     const { docIndex, docStore } = await buildDocContext(
         messages,
         userId,
@@ -416,7 +424,7 @@ chatRouter.post("/", requireAuth, async (req, res) => {
         db,
         docIndex,
     );
-    const apiMessages = buildMessages(enrichedMessages, docAvailability);
+    const apiMessages = buildMessages(enrichedMessages, docAvailability, memoryExtra);
 
     const workflowStore = await buildWorkflowStore(userId, userEmail, db);
 
@@ -464,6 +472,16 @@ chatRouter.post("/", requireAuth, async (req, res) => {
             content: events.length ? events : null,
             annotations: annotations.length ? annotations : null,
         });
+
+        if (lastUser?.content) {
+            addMemories(
+                [
+                    { role: "user", content: lastUser.content },
+                    { role: "assistant", content: fullText ?? "" },
+                ],
+                `chat_${chatId}`,
+            ).catch(() => {});
+        }
 
         if (!chatTitle && lastUser?.content) {
             await db

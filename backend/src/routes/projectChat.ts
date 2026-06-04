@@ -13,6 +13,7 @@ import {
 } from "../lib/chatTools";
 import { getUserApiKeys } from "../lib/userSettings";
 import { checkProjectAccess } from "../lib/access";
+import { searchMemories, addMemories } from "../lib/memory";
 
 const PROJECT_SYSTEM_PROMPT_EXTRA = `PROJECT CONTEXT:
 You are operating within a project folder that contains a collection of legal documents the user has organised for a single matter. The user's questions will usually refer to one or more documents in this project — your job is to find the relevant files to work on. Use list_documents to see what is available and fetch_documents / read_document to pull in any documents you need before answering.
@@ -122,7 +123,12 @@ projectChatRouter.post("/", requireAuth, async (req, res) => {
     // the system prompt with the current-turn doc_id slugs so the model
     // knows which docs the user is highlighting *now*, distinct from
     // the broader project doc list.
+    const userQuery = lastUser?.content ?? "";
+    const relevantMemories = await searchMemories(userQuery, `project_${projectId}`);
     let systemPromptExtra = PROJECT_SYSTEM_PROMPT_EXTRA;
+    if (relevantMemories.length > 0) {
+        systemPromptExtra += `\n\nUSER MEMORY (facts remembered from past sessions):\n${relevantMemories.map((m) => `- ${m}`).join("\n")}`;
+    }
     if (attached_documents?.length) {
         const slugByDocumentId = new Map<string, string>();
         for (const [slug, info] of Object.entries(docIndex)) {
@@ -178,6 +184,16 @@ projectChatRouter.post("/", requireAuth, async (req, res) => {
             content: events.length ? events : null,
             annotations: annotations.length ? annotations : null,
         });
+
+        if (lastUser?.content) {
+            addMemories(
+                [
+                    { role: "user", content: lastUser.content },
+                    { role: "assistant", content: fullText ?? "" },
+                ],
+                `project_${projectId}`,
+            ).catch(() => {});
+        }
 
         if (!chatTitle && lastUser?.content) {
             await db

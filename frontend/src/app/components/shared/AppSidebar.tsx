@@ -18,6 +18,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { MikeIcon } from "@/components/chat/mike-icon";
 import { SidebarChatItem } from "@/app/components/shared/SidebarChatItem";
+import { ServiceStatusPopover } from "@/app/components/shared/ServiceStatusPopover";
 import { listProjects } from "@/app/lib/mikeApi";
 
 const NAV_ITEMS = [
@@ -267,8 +268,13 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                             }`}
                             title={!isOpen ? user.email : undefined}
                         >
-                            <div className="h-7 w-7 flex-shrink-0 rounded-full bg-gray-700 flex items-center justify-center text-white text-sm font-medium font-serif">
-                                {getUserInitials(user.email)}
+                            <div className="relative flex-shrink-0">
+                                <div className="h-7 w-7 rounded-full bg-gray-700 flex items-center justify-center text-white text-sm font-medium font-serif">
+                                    {getUserInitials(user.email)}
+                                </div>
+                                <div className="absolute -bottom-0.5 -right-0.5">
+                                    <ServiceStatusPopover />
+                                </div>
                             </div>
                             {isOpen && (
                                 <div

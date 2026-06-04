@@ -338,3 +338,6 @@ create table if not exists public.tabular_review_chat_messages (
 
 create index if not exists tabular_review_chat_messages_chat_idx
   on public.tabular_review_chat_messages(chat_id, created_at);
+
+-- Signal PostgREST to reload its schema cache now that all tables exist.
+notify pgrst, 'reload schema';

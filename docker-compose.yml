@@ -2,6 +2,7 @@ volumes:
   minio-data:
   frontend-node-modules:
   backend-node-modules:
+  qdrant-data:
 
 services:
 
@@ -147,6 +148,37 @@ services:
         echo 'Bucket ready: '$${MINIO_BUCKET};
       "
 
+  # ─── Qdrant (vector store for Mem0) ──────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: mike_qdrant
+    restart: unless-stopped
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Mem0 memory microservice ─────────────────────────────────────────────
+  mem0-service:
+    build:
+      context: ./mem0-service
+      dockerfile: Dockerfile
+    container_name: mike_mem0
+    restart: unless-stopped
+    environment:
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: "6333"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      MEM0_LLM_MODEL: ${MEM0_LLM_MODEL:-claude-haiku-4-5-20251001}
+      MEM0_EMBEDDER_MODEL: ${MEM0_EMBEDDER_MODEL:-}
+    depends_on:
+      qdrant:
+        condition: service_healthy
+
   # ─── Backend ──────────────────────────────────────────────────────────────
   mike-backend:
     build:
@@ -166,6 +198,7 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       DOWNLOAD_SIGNING_SECRET: ${DOWNLOAD_SIGNING_SECRET:-}
+      MEM0_SERVICE_URL: http://mem0-service:8100
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       PORT: ${PORT:-3001}
     volumes:
@@ -176,6 +209,9 @@ services:
         condition: service_started
       minio:
         condition: service_healthy
+      mem0-service:
+        condition: service_started
+        required: false
 
   # ─── Frontend ─────────────────────────────────────────────────────────────
   mike-frontend:

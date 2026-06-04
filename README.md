@@ -8,7 +8,7 @@
 
 ## What this branch adds
 
-The upstream Mike repo expects a hosted Supabase project and Cloudflare R2 bucket. This branch wires up the full self-hosted equivalent inside Docker Compose:
+The upstream Mike repo expects a hosted Supabase project and Cloudflare R2 bucket. This branch wires up the full self-hosted equivalent inside Docker Compose, and extends Mike with persistent AI memory via [mem0](https://github.com/mem-0/mem0):
 
 | Upstream (cloud) | This branch (local Docker) |
 |---|---|
@@ -16,8 +16,7 @@ The upstream Mike repo expects a hosted Supabase project and Cloudflare R2 bucke
 | Supabase PostgREST (hosted) | PostgREST + PostgreSQL 15 |
 | Supabase DB (hosted) | PostgreSQL 15-alpine |
 | Cloudflare R2 | MinIO (S3-compatible) |
-
-Everything else (frontend, backend, document processing, LLM integration) is unchanged from upstream.
+| *(no memory)* | mem0 + Qdrant (persistent AI memory) |
 
 ---
 
@@ -35,25 +34,80 @@ Browser (localhost:3000)
             │       └─► /rest/v1/*  → supabase-rest  :3000  (PostgREST)
             │                               └─► supabase-db  :5432  (PostgreSQL)
             │
-            └─► minio          :9000   S3-compatible storage
-                    └─► minio console  :9001
+            ├─► minio          :9000   S3-compatible storage
+            │       └─► minio console  :9001
+            │
+            └─► mem0-service   :8100   Memory microservice (FastAPI)
+                    └─► qdrant :6333   Vector store
 ```
 
 **Startup order:**
 1. `supabase-db` starts → healthcheck passes
-2. `supabase-auth` + `supabase-rest` start (depend on db)
-3. `supabase-api` (nginx) starts (depends on auth + rest)
-4. `db-migrate` runs the one-shot schema (waits 20 s for GoTrue to finish its own migrations)
-5. `minio` starts → `minio-setup` creates the bucket
-6. `mike-backend` + `mike-frontend` start
+2. `qdrant` starts → healthcheck passes
+3. `supabase-auth` + `supabase-rest` + `minio` start
+4. `supabase-api` (nginx) and `mem0-service` start
+5. `db-migrate` runs the one-shot schema (waits 20 s for GoTrue migrations, then sends `NOTIFY pgrst` to refresh PostgREST schema cache)
+6. `minio-setup` creates the storage bucket
+7. `mike-backend` + `mike-frontend` start
+
+> `mem0-service` is a non-fatal dependency: if it fails to start (e.g. missing API key), Mike continues to work normally without memory.
+
+---
+
+## AI Memory (mem0)
+
+Mike remembers facts across conversations using [mem0ai](https://github.com/mem-0/mem0), a library that extracts and indexes key information from chat exchanges.
+
+### How it works
+
+1. **Before each LLM call** — the backend searches for memories relevant to the current query and injects them into the system prompt.
+2. **After each LLM response** — the exchange is sent to `mem0-service`, which uses Claude to extract memorable facts and stores them as vectors in Qdrant.
+
+### Memory scopes
+
+Memory is scoped to avoid cross-contamination between unrelated contexts:
+
+| Context | Scope | Behaviour |
+|---|---|---|
+| Standalone chat (`/assistant`) | Per chat session | Each chat has its own isolated memory. Starting a new chat starts fresh. |
+| Project chat (`/projects/…`) | Per project | All chats within the same project share memory. Information from one session is available in all subsequent sessions of that project. |
+
+This means: if you tell Mike your name and role in a project chat, it will remember it across all future sessions in that project. A separate standalone chat will not have access to that information.
+
+### API keys used by mem0
+
+mem0 uses two external APIs — both keys you already have in `.env`:
+
+| Key | Used for | Required |
+|---|---|---|
+| `GEMINI_API_KEY` | Generating text embeddings (`gemini-embedding-001`) | Yes |
+| `ANTHROPIC_API_KEY` | Extracting and reasoning about memories (Claude Haiku) | Yes |
+
+> If your Anthropic credit balance runs out, `memories/add` will fail silently — Mike keeps working but stops accumulating new memories. The service status indicator in the UI will show "LLM (Anthropic)" as red with a message prompting you to top up at [console.anthropic.com](https://console.anthropic.com).
+
+---
+
+## Service status indicator
+
+A status dot appears on your avatar in the sidebar (bottom-left). Click it to see the health of all backend services in real time:
+
+| Service | What is checked |
+|---|---|
+| Database | PostgREST query against `user_profiles` |
+| Storage | HTTP HEAD against the MinIO bucket |
+| Memory (Mem0) | `GET /health` on the mem0 microservice |
+| LLM (Anthropic) | Minimal API call (cached 5 min to avoid unnecessary spend) |
+
+Colours: 🟢 online · 🟡 starting · 🔴 unavailable. When Anthropic credits are exhausted the LLM row shows a specific message with a link to the billing page.
 
 ---
 
 ## Requirements
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine + Compose v2 on Linux)
-- An **Anthropic** and/or **Gemini** API key (for LLM features)
-- ~4 GB free disk space (images + node_modules volumes)
+- A **Gemini** API key (`GEMINI_API_KEY`) — for embeddings and as a fallback LLM
+- An **Anthropic** API key (`ANTHROPIC_API_KEY`) — for chat and memory reasoning
+- ~5 GB free disk space (images + node_modules volumes + Qdrant data)
 
 No Node.js, no Python, no LibreOffice on the host — everything runs inside containers.
 
@@ -63,7 +117,7 @@ No Node.js, no Python, no LibreOffice on the host — everything runs inside con
 
 ```bash
 # 1. Clone
-git clone -b Mike-self-hosted-full-stack \
+git clone -b feat/mem0-integration \
   https://github.com/danielesalpietro/Mike-for-dummies.git
 cd Mike-for-dummies
 
@@ -74,9 +128,9 @@ cp .env.docker .env
 Open `.env` and fill in at minimum:
 
 ```dotenv
-ANTHROPIC_API_KEY=sk-ant-...          # at least one LLM key required
-GEMINI_API_KEY=AIza...                # optional second provider
-DOWNLOAD_SIGNING_SECRET=<random 32+  chars>  # openssl rand -hex 32
+ANTHROPIC_API_KEY=sk-ant-...          # required for chat + memory reasoning
+GEMINI_API_KEY=AIza...                # required for embeddings
+DOWNLOAD_SIGNING_SECRET=<random 32+ chars>  # openssl rand -hex 32
 ```
 
 Everything else (JWT keys, MinIO credentials, ports) is pre-configured for local use.
@@ -105,7 +159,7 @@ http://localhost:3000
 | minio API | `9000` | S3-compatible storage endpoint |
 | minio console | `9001` | MinIO web UI (`minioadmin` / `minioadmin`) |
 
-Internal services (not exposed to host): `supabase-db` (5432), `supabase-auth` (9999), `supabase-rest` (3000).
+Internal services (not exposed to host): `supabase-db` (5432), `supabase-auth` (9999), `supabase-rest` (3000), `mem0-service` (8100), `qdrant` (6333).
 
 ---
 
@@ -148,7 +202,7 @@ console.log('SERVICE_ROLE_KEY='+mk({iss:'supabase-demo',role:'service_role',exp:
 | `MINIO_ROOT_PASSWORD` | `minioadmin` | MinIO admin password |
 | `R2_BUCKET_NAME` | `mike` | Bucket name for document storage |
 
-### Backend
+### Backend / LLM
 
 | Variable | Default | Description |
 |---|---|---|
@@ -157,6 +211,13 @@ console.log('SERVICE_ROLE_KEY='+mk({iss:'supabase-demo',role:'service_role',exp:
 | `DOWNLOAD_SIGNING_SECRET` | *(empty — **required**)* | Random secret for signed download URLs. Generate with `openssl rand -hex 32` |
 | `PORT` | `3001` | Backend port |
 | `FRONTEND_URL` | `http://localhost:3000` | Allowed CORS origin |
+
+### mem0 (optional overrides)
+
+| Variable | Default | Description |
+|---|---|---|
+| `MEM0_LLM_MODEL` | `claude-haiku-4-5-20251001` | Anthropic model used by mem0 for memory extraction |
+| `MEM0_EMBEDDER_MODEL` | `gemini-embedding-001` | Gemini model used for vector embeddings |
 
 ### Ports (override if there are conflicts)
 
@@ -182,7 +243,7 @@ docker compose down -v      # removes containers AND named volumes (node_modules
 docker compose up --build
 ```
 
-> **Note:** the PostgreSQL data directory (`supabase/postgres/data/`) is a bind-mount and is NOT deleted by `down -v`. Your data persists across rebuilds.
+> **Note:** the PostgreSQL data directory (`supabase/postgres/data/`) and the Qdrant data volume (`qdrant-data`) are **not** deleted by `down -v`. Your database records and memories persist across rebuilds.
 
 ---
 
@@ -198,7 +259,15 @@ Named volumes (`frontend-node-modules`, `backend-node-modules`) may be stale. Ru
 S3 path-style is required for MinIO. Already fixed in this branch (`forcePathStyle: true` in `backend/src/lib/storage.ts`). If you see this, make sure you are on this branch and have rebuilt the backend image.
 
 ### `Failed to fetch` on login / signup
-Check that `supabase-api` is running and healthy: `docker compose ps`. Nginx must be able to reach `supabase-auth:9999`.
+Check that `supabase-api` is running: `docker compose ps`. Nginx must be able to reach `supabase-auth:9999`. Wait ~30 seconds on first startup for GoTrue migrations to complete.
+
+### Profile settings (display name etc.) return 404
+This happens when PostgREST loads its schema cache before the migration runs. The migration now sends `NOTIFY pgrst` at the end to trigger a schema reload automatically. If you still see this, run `docker compose restart supabase-rest`.
+
+### mem0 `memories/add` returns 500
+Check `docker compose logs mem0-service`. Common causes:
+- **Anthropic credit balance too low** — top up at [console.anthropic.com](https://console.anthropic.com). Visible as a red "LLM (Anthropic)" entry in the status popover.
+- **Qdrant collection dimension mismatch** — happens if you previously ran mem0 with a different embedding model. Fix: `docker compose exec mem0-service python -c "from qdrant_client import QdrantClient; c = QdrantClient(host='qdrant', port=6333); c.delete_collection('mike_memories'); c.delete_collection('mem0migrations')"` then restart mem0-service.
 
 ### Port conflict
 Change the relevant `*_PORT` variable in `.env` and run `docker compose up -d`.
@@ -224,7 +293,7 @@ Row-level security (RLS) is enabled on all user-facing tables.
 
 **Original project:** [Mike Legal Assistant](https://github.com/willchen96/mike) by [@willchen96](https://github.com/willchen96) and contributors — all application logic, frontend, and backend belong to the original authors.
 
-**This branch** (self-hosted Docker Compose setup): [@danielesalpietro](https://github.com/danielesalpietro)
+**This branch** (self-hosted Docker Compose setup + mem0 integration): [@danielesalpietro](https://github.com/danielesalpietro)
 
 ---
 

@@ -9,6 +9,7 @@ import { tabularRouter } from "./routes/tabular";
 import { workflowsRouter } from "./routes/workflows";
 import { userRouter } from "./routes/user";
 import { downloadsRouter } from "./routes/downloads";
+import { statusRouter } from "./routes/status";
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -33,6 +34,7 @@ app.use("/users", userRouter);
 app.use("/download", downloadsRouter);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
+app.use("/status", statusRouter);
 
 app.listen(PORT, () => {
   console.log(`Mike backend running on port ${PORT}`);
