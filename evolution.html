@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mike — Evolution of the Stack</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --accent: #58a6ff;
+      --accent2: #3fb950;
+      --accent3: #d2a8ff;
+      --accent4: #ffa657;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --tag-bg: #21262d;
+      --radius: 10px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.7;
+      padding: 0 0 80px;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      background: linear-gradient(160deg, #0d1117 0%, #161b22 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 64px 24px 48px;
+      text-align: center;
+    }
+    .hero .logo {
+      font-size: 13px;
+      font-family: var(--mono);
+      color: var(--accent);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+    .hero h1 {
+      font-size: clamp(28px, 5vw, 48px);
+      font-weight: 700;
+      letter-spacing: -.02em;
+      margin-bottom: 14px;
+    }
+    .hero h1 span { color: var(--accent); }
+    .hero p {
+      max-width: 620px;
+      margin: 0 auto;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    /* ── Timeline spine ── */
+    .timeline {
+      max-width: 900px;
+      margin: 64px auto 0;
+      padding: 0 24px;
+      position: relative;
+    }
+    .timeline::before {
+      content: "";
+      position: absolute;
+      left: 50px;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: linear-gradient(to bottom, var(--accent), var(--accent3), var(--accent4));
+      opacity: .35;
+    }
+
+    /* ── Version card ── */
+    .version {
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 0 32px;
+      margin-bottom: 64px;
+      position: relative;
+    }
+
+    /* Step circle */
+    .step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 4px;
+    }
+    .step-dot {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 14px;
+      flex-shrink: 0;
+      border: 2px solid;
+    }
+    .v0  .step-dot { background: #21262d; border-color: var(--muted);   color: var(--muted);   }
+    .v1  .step-dot { background: #0d419d; border-color: var(--accent);  color: var(--accent);  }
+    .v2  .step-dot { background: #1a3a27; border-color: var(--accent2); color: var(--accent2); }
+    .v3  .step-dot { background: #2d1f6b; border-color: var(--accent3); color: var(--accent3); }
+
+    .step-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+      margin-top: 6px;
+      font-family: var(--mono);
+    }
+
+    /* Card body */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .card-header .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-family: var(--mono);
+      padding: 2px 8px;
+      border-radius: 20px;
+      margin-bottom: 8px;
+      font-weight: 600;
+      letter-spacing: .04em;
+    }
+    .v0 .badge { background: #21262d;  color: var(--muted);   }
+    .v1 .badge { background: #0d419d;  color: #79c0ff;        }
+    .v2 .badge { background: #1a3a27;  color: var(--accent2); }
+    .v3 .badge { background: #2d1f6b;  color: var(--accent3); }
+
+    .card-header h2 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .v0 .card-header h2 { color: var(--text); }
+    .v1 .card-header h2 { color: var(--accent); }
+    .v2 .card-header h2 { color: var(--accent2); }
+    .v3 .card-header h2 { color: var(--accent3); }
+
+    .card-header .tagline {
+      color: var(--muted);
+      font-size: 13px;
+      font-style: italic;
+    }
+
+    .card-body { padding: 20px 24px 24px; }
+
+    /* Section inside card */
+    .section { margin-bottom: 20px; }
+    .section:last-child { margin-bottom: 0; }
+    .section-title {
+      font-size: 11px;
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    /* Comparison table */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      text-align: left;
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      background: #0d1117;
+    }
+    td:first-child { color: var(--muted); }
+    td code {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: var(--tag-bg);
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+    tr:last-child td { border-bottom: none; }
+
+    /* Change list */
+    .changes {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .changes li {
+      display: grid;
+      grid-template-columns: 20px 1fr;
+      gap: 8px;
+      align-items: baseline;
+      font-size: 14px;
+    }
+    .changes li .icon { font-size: 13px; }
+    .changes li.add    .icon { color: var(--accent2); }
+    .changes li.mod    .icon { color: var(--accent);  }
+    .changes li.remove .icon { color: #f85149;        }
+    .changes li.note   .icon { color: var(--accent4); }
+
+    /* Architecture diagram */
+    .arch {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px 18px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      white-space: pre;
+      overflow-x: auto;
+      line-height: 1.6;
+    }
+    .arch .hl { color: var(--text); }
+    .arch .dim { opacity: .45; }
+
+    /* Tag pills */
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tag {
+      font-size: 11px;
+      font-family: var(--mono);
+      background: var(--tag-bg);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 2px 9px;
+      border-radius: 20px;
+    }
+    .tag.new { border-color: var(--accent2); color: var(--accent2); }
+    .tag.changed { border-color: var(--accent); color: var(--accent); }
+    .tag.removed { border-color: #f85149; color: #f85149; }
+
+    /* Divider between origin + editions */
+    .divider {
+      max-width: 900px;
+      margin: 0 auto 48px;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      color: var(--muted);
+      font-size: 12px;
+      font-family: var(--mono);
+      text-transform: uppercase;
+      letter-spacing: .1em;
+    }
+    .divider::before, .divider::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    @media (max-width: 600px) {
+      .timeline::before { left: 22px; }
+      .version { grid-template-columns: 50px 1fr; gap: 0 16px; }
+      .step-dot { width: 28px; height: 28px; font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Hero ── -->
+<section class="hero">
+  <p class="logo">Mike Legal Assistant</p>
+  <h1>Evolution of the <span>Stack</span></h1>
+  <p>From upstream open-source release to three progressively more self-contained deployment editions — each one removing another external dependency.</p>
+</section>
+
+<!-- ── Timeline ── -->
+<div class="timeline">
+
+  <!-- ─────────────────────────────────────────
+       V0 — Original upstream (willchen96/mike)
+       ───────────────────────────────────────── -->
+  <div class="version v0">
+    <div class="step">
+      <div class="step-dot">0</div>
+      <div class="step-label">origin</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="badge">upstream</span>
+        <h2>Mike Legal Assistant</h2>
+        <p class="tagline">willchen96/mike — the original open-source release</p>
+      </div>
+      <div class="card-body">
+
+        <div class="section">
+          <div class="section-title">What it is</div>
+          <p>A full-stack AI legal assistant built with <strong>Next.js</strong> (frontend) and <strong>Express + TypeScript</strong> (backend). Supports document ingestion, AI-powered review, tabular analysis, and chat sessions over legal files.</p>
+        </div>
+
+        <div class="section">
+          <div class="section-title">External services required</div>
+          <table>
+            <thead><tr><th>Capability</th><th>Provider</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td>Auth + Database</td><td><code>Supabase (hosted)</code></td><td>Cloud project required</td></tr>
+              <tr><td>File storage</td><td><code>Cloudflare R2</code></td><td>Paid cloud bucket</td></tr>
+              <tr><td>LLM inference</td><td><code>Anthropic / Gemini</code></td><td>API keys required</td></tr>
+              <tr><td>Runtime on host</td><td><code>Node.js · LibreOffice</code></td><td>Must be installed manually</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Setup</div>
+          <p>Clone, install Node.js and LibreOffice on the host, create a Supabase project, create a Cloudflare R2 bucket, copy <code>.env</code>, run migrations, then <code>npm install &amp;&amp; npm run dev</code>.</p>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Stack</div>
+          <div class="tags">
+            <span class="tag">Next.js</span>
+            <span class="tag">Express</span>
+            <span class="tag">TypeScript</span>
+            <span class="tag">Supabase hosted</span>
+            <span class="tag">Cloudflare R2</span>
+            <span class="tag">PostgreSQL (managed)</span>
+            <span class="tag">GoTrue (managed)</span>
+            <span class="tag">PostgREST (managed)</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div><!-- /v0 -->
+
+</div><!-- /timeline -->
+
+<div class="divider">Derivative editions</div>
+
+<div class="timeline">
+
+  <!-- ─────────────────────────────────────────
+       V1 — Mike for Dummies (main branch)
+       ───────────────────────────────────────── -->
+  <div class="version v1">
+    <div class="step">
+      <div class="step-dot">1</div>
+      <div class="step-label">v1</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="badge">one-click · docker compose</span>
+        <h2>Mike for Dummies</h2>
+        <p class="tagline">The 60-second Dockerized version — zero host dependencies</p>
+      </div>
+      <div class="card-body">
+
+        <div class="section">
+          <div class="section-title">Goal</div>
+          <p>Make the upstream project runnable by anyone with Docker, without installing Node.js, LibreOffice, or any other runtime on the host. An interactive Python wizard (<code>setup.py</code>) generates both <code>.env</code> files automatically.</p>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Changes from upstream</div>
+          <ul class="changes">
+            <li class="add"><span class="icon">＋</span><span><strong>docker-compose.yml</strong> — single file spins up frontend and backend containers.</span></li>
+            <li class="add"><span class="icon">＋</span><span><strong>setup.py</strong> — interactive wizard; validates API keys, fixes URL formatting, writes <code>.env</code> files with automatic backups.</span></li>
+            <li class="add"><span class="icon">＋</span><span><strong>Dockerfiles</strong> — Node.js and LibreOffice are bundled inside the images; the host stays clean.</span></li>
+            <li class="note"><span class="icon">→</span><span>External services (Supabase hosted, Cloudflare R2, LLM keys) are still required — this edition only removes the host-runtime dependency.</span></li>
+          </ul>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Architecture</div>
+          <div class="arch"><span class="hl">Host (Docker Desktop)</span>
+├── <span class="hl">mike-frontend</span>  :3000   Next.js
+└── <span class="hl">mike-backend</span>   :3001   Express + TypeScript
+        │
+        ├─► <span class="hl">Supabase (cloud)</span>        Auth · DB · REST
+        └─► <span class="hl">Cloudflare R2 (cloud)</span>   File storage</div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">What still requires cloud</div>
+          <table>
+            <thead><tr><th>Capability</th><th>Provider</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td>Auth + Database</td><td><code>Supabase (hosted)</code></td><td>still cloud</td></tr>
+              <tr><td>File storage</td><td><code>Cloudflare R2</code></td><td>still cloud</td></tr>
+              <tr><td>LLM inference</td><td><code>Anthropic / Gemini</code></td><td>still cloud</td></tr>
+              <tr><td>Runtime on host</td><td>—</td><td>✅ eliminated</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Stack</div>
+          <div class="tags">
+            <span class="tag changed">docker-compose</span>
+            <span class="tag new">setup.py wizard</span>
+            <span class="tag">Next.js (containerized)</span>
+            <span class="tag">Express (containerized)</span>
+            <span class="tag">Supabase hosted</span>
+            <span class="tag">Cloudflare R2</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div><!-- /v1 -->
+
+  <!-- ─────────────────────────────────────────
+       V2 — Private AI Stack (self-hosted full stack)
+       ───────────────────────────────────────── -->
+  <div class="version v2">
+    <div class="step">
+      <div class="step-dot">2</div>
+      <div class="step-label">v2</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="badge">Private AI Stack · fully local · zero cloud</span>
+        <h2>Mike Self-Hosted Full Stack</h2>
+        <p class="tagline">No Supabase cloud, no Cloudflare R2 — everything runs inside Docker Compose</p>
+      </div>
+      <div class="card-body">
+
+        <div class="section">
+          <div class="section-title">Goal</div>
+          <p>Replace every hosted cloud service with a self-hosted equivalent running as a Docker container on the local machine. Legal documents never leave the host. Only LLM API keys remain external.</p>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Cloud services eliminated</div>
+          <table>
+            <thead><tr><th>Upstream (cloud)</th><th>Replacement (local Docker)</th></tr></thead>
+            <tbody>
+              <tr><td><code>Supabase Auth (hosted)</code></td><td><code>GoTrue</code> — self-hosted identity server</td></tr>
+              <tr><td><code>Supabase PostgREST (hosted)</code></td><td><code>PostgREST</code> + PostgreSQL 15</td></tr>
+              <tr><td><code>Supabase DB (hosted)</code></td><td><code>PostgreSQL 15-alpine</code></td></tr>
+              <tr><td><code>Cloudflare R2</code></td><td><code>MinIO</code> — S3-compatible object storage</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Changes from v1</div>
+          <ul class="changes">
+            <li class="add"><span class="icon">＋</span><span><strong>supabase-db</strong> — PostgreSQL 15-alpine container with bind-mount data directory; data persists across rebuilds.</span></li>
+            <li class="add"><span class="icon">＋</span><span><strong>supabase-auth</strong> — GoTrue container wired to the local DB; handles signup, login, JWT issuance.</span></li>
+            <li class="add"><span class="icon">＋</span><span><strong>supabase-rest</strong> — PostgREST container; auto-generates REST API from the PostgreSQL schema with RLS enforcement.</span></li>
+            <li class="add"><span class="icon">＋</span><span><strong>supabase-api</strong> — nginx gateway routing <code>/auth/v1/*</code> → GoTrue and <code>/rest/v1/*</code> → PostgREST, replicating the Supabase API surface.</span></li>
+            <li class="add"><span class="icon">＋</span><span><strong>minio + minio-setup</strong> — S3-compatible storage; bucket created automatically on first boot.</span></li>
+            <li class="add"><span class="icon">＋</span><span><strong>db-migrate</strong> — one-shot container runs <code>000_one_shot_schema.sql</code> after GoTrue finishes its own migrations.</span></li>
+            <li class="mod"><span class="icon">~</span><span><strong>backend/src/lib/storage.ts</strong> — <code>forcePathStyle: true</code> added for MinIO path-style S3 compatibility.</span></li>
+            <li class="mod"><span class="icon">~</span><span><strong>supabase nginx config</strong> — CORS allow-list extended with <code>x-supabase-api-version</code> and <code>apikey</code> headers required by the self-hosted client.</span></li>
+            <li class="mod"><span class="icon">~</span><span><strong>.env.docker</strong> — pre-configured JWT secret, ANON_KEY, SERVICE_ROLE_KEY, MinIO credentials; safe defaults for local use.</span></li>
+            <li class="note"><span class="icon">→</span><span>Application code (frontend, backend, document processing, LLM calls) is unchanged from upstream.</span></li>
+          </ul>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Architecture</div>
+          <div class="arch"><span class="hl">Browser</span> → localhost:3000
+    │
+    ├─► <span class="hl">mike-frontend</span>  :3000   Next.js
+    │
+    └─► <span class="hl">mike-backend</span>   :3001   Express + TypeScript
+            │
+            ├─► <span class="hl">supabase-api</span>   :8000   nginx gateway
+            │       ├─► /auth/v1/*  → <span class="hl">supabase-auth</span>  :9999  (GoTrue)
+            │       └─► /rest/v1/*  → <span class="hl">supabase-rest</span>  :3000  (PostgREST)
+            │                               └─► <span class="hl">supabase-db</span>  :5432  (PostgreSQL 15)
+            │
+            └─► <span class="hl">minio</span>          :9000   S3-compatible storage
+                    └─► <span class="hl">minio console</span>  :9001</div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">What still requires cloud</div>
+          <table>
+            <thead><tr><th>Capability</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td>Auth + Database</td><td>✅ fully local (GoTrue + PostgreSQL)</td></tr>
+              <tr><td>File storage</td><td>✅ fully local (MinIO)</td></tr>
+              <tr><td>Runtime on host</td><td>✅ eliminated (Docker only)</td></tr>
+              <tr><td>LLM inference</td><td>still cloud (Anthropic / Gemini API keys)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Stack</div>
+          <div class="tags">
+            <span class="tag">docker-compose</span>
+            <span class="tag new">PostgreSQL 15</span>
+            <span class="tag new">GoTrue (self-hosted auth)</span>
+            <span class="tag new">PostgREST</span>
+            <span class="tag new">MinIO</span>
+            <span class="tag new">nginx API gateway</span>
+            <span class="tag changed">forcePathStyle S3</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div><!-- /v2 -->
+
+  <!-- ─────────────────────────────────────────
+       V3 — MicroCloud Edition (LXD branch)
+       ───────────────────────────────────────── -->
+  <div class="version v3">
+    <div class="step">
+      <div class="step-dot">3</div>
+      <div class="step-label">v3</div>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <span class="badge">MicroCloud Edition · lxd · microceph · High Availability</span>
+        <h2>Mike on MicroCloud</h2>
+        <p class="tagline">No Docker on the host — each service runs in a native Ubuntu LXD container on private infrastructure</p>
+      </div>
+      <div class="card-body">
+
+        <div class="section">
+          <div class="section-title">Goal</div>
+          <p>Move from Docker Compose to a production-grade private infrastructure stack. Each microservice runs in a dedicated LXD container provisioned via <strong>cloud-init</strong>. <strong>MicroCloud</strong> provides the network fabric (fan overlay) and storage (ZFS / MicroCeph). No Docker daemon required on the host.</p>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Tested stack</div>
+          <div class="arch">Windows 10/11 Pro
+  └── VMware Workstation
+        └── <span class="hl">Ubuntu 24.04 LTS</span> (VM)
+              └── <span class="hl">MicroCloud + LXD</span>
+                    ├── Container: <span class="hl">mike-backend</span>   (Node.js + Express, :3001)
+                    └── Container: <span class="hl">mike-frontend</span>  (Next.js, :3000)</div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Changes from v1 / v2</div>
+          <ul class="changes">
+            <li class="add"><span class="icon">＋</span><span><strong>lxd/profiles/common.yaml</strong> — base LXD profile (NIC on <code>lxdfan0</code>, ZFS root on <code>local</code> pool).</span></li>
+            <li class="add"><span class="icon">＋</span><span><strong>lxd/profiles/backend.yaml / frontend.yaml</strong> — per-service LXD profiles with resource limits and cloud-init injection.</span></li>
+            <li class="add"><span class="icon">＋</span><span><strong>lxd/cloud-init/backend.yaml / frontend.yaml</strong> — declarative provisioning: installs Node.js, clones the repo, copies <code>.env</code>, starts the service via <code>systemd</code>.</span></li>
+            <li class="add"><span class="icon">＋</span><span><strong>lxd/launch.sh</strong> — single script to create, profile, and start one or both containers; idempotent re-runs.</span></li>
+            <li class="mod"><span class="icon">~</span><span><strong>Deployment model</strong> — Docker Compose is replaced by LXD containers; the docker-compose.yml is kept for the local-development mode only.</span></li>
+            <li class="mod"><span class="icon">~</span><span><strong>Networking</strong> — services are addressed by real LXD container IPs on the fan network, not Docker bridge aliases; <code>FRONTEND_URL</code> and <code>NEXT_PUBLIC_API_BASE_URL</code> must use the host IP.</span></li>
+            <li class="note"><span class="icon">→</span><span>External services (Supabase hosted, Cloudflare R2) are still used in the v3 branch — the self-hosted Supabase stack from v2 can be layered in separately.</span></li>
+            <li class="note"><span class="icon">→</span><span>High-availability and storage replication are provided by MicroCeph (Ceph over MicroCloud); not wired into the app itself but available at the infrastructure layer.</span></li>
+          </ul>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Architecture</div>
+          <div class="arch"><span class="hl">Ubuntu Host (MicroCloud node)</span>
+  └── LXD daemon
+        ├── <span class="hl">mike-frontend</span>  container  →  lxdfan0 IP :3000
+        │       cloud-init: node install · git clone · systemd unit
+        │
+        └── <span class="hl">mike-backend</span>   container  →  lxdfan0 IP :3001
+                cloud-init: node install · git clone · systemd unit
+                │
+                ├─► <span class="hl">Supabase (cloud)</span>        Auth · DB · REST
+                └─► <span class="hl">Cloudflare R2 (cloud)</span>   File storage
+
+<span class="dim">Storage layer:  ZFS pool (local)  ·  MicroCeph (HA replication)
+Network layer:  lxdfan0 overlay  ·  MicroCloud fan bridge</span></div>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Infrastructure properties</div>
+          <table>
+            <thead><tr><th>Property</th><th>Docker Compose (v1/v2)</th><th>MicroCloud LXD (v3)</th></tr></thead>
+            <tbody>
+              <tr><td>Isolation</td><td>Linux namespaces (shared kernel)</td><td>LXD containers (full init, systemd)</td></tr>
+              <tr><td>Networking</td><td>Docker bridge / aliases</td><td>MicroCloud fan overlay (lxdfan0)</td></tr>
+              <tr><td>Storage</td><td>Docker named volumes</td><td>ZFS pool · MicroCeph (HA)</td></tr>
+              <tr><td>Service lifecycle</td><td><code>docker compose up/down</code></td><td><code>systemd</code> units inside containers</td></tr>
+              <tr><td>Provisioning</td><td>Dockerfile + compose</td><td>LXD profiles + cloud-init</td></tr>
+              <tr><td>HA / replication</td><td>single-host only</td><td>MicroCeph multi-node</td></tr>
+              <tr><td>Docker required</td><td>yes</td><td>no</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Stack</div>
+          <div class="tags">
+            <span class="tag new">LXD containers</span>
+            <span class="tag new">MicroCloud</span>
+            <span class="tag new">cloud-init provisioning</span>
+            <span class="tag new">systemd service units</span>
+            <span class="tag new">ZFS storage pool</span>
+            <span class="tag new">MicroCeph (HA)</span>
+            <span class="tag removed">Docker Compose (production)</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div><!-- /v3 -->
+
+</div><!-- /timeline -->
+
+<!-- ── Summary table ── -->
+<div style="max-width:900px;margin:0 auto 0;padding:0 24px;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;">
+    <div style="padding:20px 24px 14px;border-bottom:1px solid var(--border);">
+      <div style="font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:4px;">Summary</div>
+      <div style="font-size:18px;font-weight:700;">Dependency matrix across editions</div>
+    </div>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Dependency</th>
+            <th style="color:var(--muted)">v0 upstream</th>
+            <th style="color:#79c0ff">v1 for-dummies</th>
+            <th style="color:var(--accent2)">v2 self-hosted</th>
+            <th style="color:var(--accent3)">v3 microcloud</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Node.js on host</td>
+            <td>required</td>
+            <td style="color:var(--accent2)">✅ removed</td>
+            <td style="color:var(--accent2)">✅ removed</td>
+            <td style="color:var(--accent2)">✅ removed</td>
+          </tr>
+          <tr>
+            <td>LibreOffice on host</td>
+            <td>required</td>
+            <td style="color:var(--accent2)">✅ removed</td>
+            <td style="color:var(--accent2)">✅ removed</td>
+            <td style="color:var(--accent2)">✅ removed</td>
+          </tr>
+          <tr>
+            <td>Supabase (cloud)</td>
+            <td>required</td>
+            <td>required</td>
+            <td style="color:var(--accent2)">✅ replaced (GoTrue + PG)</td>
+            <td>required *</td>
+          </tr>
+          <tr>
+            <td>Cloudflare R2</td>
+            <td>required</td>
+            <td>required</td>
+            <td style="color:var(--accent2)">✅ replaced (MinIO)</td>
+            <td>required *</td>
+          </tr>
+          <tr>
+            <td>Docker on host</td>
+            <td>no</td>
+            <td>required</td>
+            <td>required</td>
+            <td style="color:var(--accent2)">✅ removed (LXD)</td>
+          </tr>
+          <tr>
+            <td>LLM API keys</td>
+            <td>required</td>
+            <td>required</td>
+            <td>required</td>
+            <td>required</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="padding:12px 24px;color:var(--muted);font-size:12px;border-top:1px solid var(--border);">
+      * v3 branch focuses on infrastructure (LXD/MicroCloud); the v2 self-hosted Supabase stack can be layered in separately.
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
