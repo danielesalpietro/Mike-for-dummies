@@ -20,12 +20,19 @@ projectsRouter.get("/", requireAuth, async (req, res) => {
   const userEmail = res.locals.userEmail as string;
   const db = createServerSupabase();
 
+  console.log("[GET /projects] userId:", userId, "userEmail:", userEmail);
+
   const { data: ownProjects, error: ownError } = await db
     .from("projects")
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
-  if (ownError) return void res.status(500).json({ detail: ownError.message });
+  if (ownError) {
+    console.error("[GET /projects] ownProjects query error:", ownError);
+    return void res.status(500).json({ detail: ownError.message });
+  }
+
+  console.log("[GET /projects] ownProjects count:", ownProjects?.length ?? 0);
 
   const { data: sharedProjects, error: sharedError } = userEmail
     ? await db
@@ -35,40 +42,56 @@ projectsRouter.get("/", requireAuth, async (req, res) => {
         .neq("user_id", userId)
         .order("created_at", { ascending: false })
     : { data: [], error: null };
-  if (sharedError)
+  if (sharedError) {
+    console.error("[GET /projects] sharedProjects query error:", sharedError);
     return void res.status(500).json({ detail: sharedError.message });
+  }
 
   const projects = [...(ownProjects ?? []), ...(sharedProjects ?? [])].sort(
     (a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
 
-  const result = await Promise.all(
-    projects.map(async (p) => {
-      const [docs, chats, reviews] = await Promise.all([
-        db
-          .from("documents")
-          .select("id", { count: "exact", head: true })
-          .eq("project_id", p.id),
-        db
-          .from("chats")
-          .select("id", { count: "exact", head: true })
-          .eq("project_id", p.id),
-        db
-          .from("tabular_reviews")
-          .select("id", { count: "exact", head: true })
-          .eq("project_id", p.id),
-      ]);
-      return {
+  try {
+    const result = await Promise.all(
+      projects.map(async (p) => {
+        const [docs, chats, reviews] = await Promise.all([
+          db
+            .from("documents")
+            .select("id", { count: "exact", head: true })
+            .eq("project_id", p.id),
+          db
+            .from("chats")
+            .select("id", { count: "exact", head: true })
+            .eq("project_id", p.id),
+          db
+            .from("tabular_reviews")
+            .select("id", { count: "exact", head: true })
+            .eq("project_id", p.id),
+        ]);
+        return {
+          ...p,
+          is_owner: p.user_id === userId,
+          document_count: docs.count ?? 0,
+          chat_count: chats.count ?? 0,
+          review_count: reviews.count ?? 0,
+        };
+      }),
+    );
+    res.json(result);
+  } catch (err) {
+    console.error("[GET /projects] count queries error:", err);
+    // Fall back to returning projects without counts rather than failing entirely.
+    res.json(
+      projects.map((p) => ({
         ...p,
         is_owner: p.user_id === userId,
-        document_count: docs.count ?? 0,
-        chat_count: chats.count ?? 0,
-        review_count: reviews.count ?? 0,
-      };
-    }),
-  );
-  res.json(result);
+        document_count: 0,
+        chat_count: 0,
+        review_count: 0,
+      })),
+    );
+  }
 });
 
 // POST /projects

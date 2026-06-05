@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, FolderOpen, ChevronDown } from "lucide-react";
+import { Plus, FolderOpen, ChevronDown, RefreshCw } from "lucide-react";
 import { HeaderSearchBtn } from "@/app/components/shared/HeaderSearchBtn";
 import { listProjects, updateProject, deleteProject } from "@/app/lib/mikeApi";
 import { OwnerOnlyModal } from "@/app/components/shared/OwnerOnlyModal";
@@ -28,6 +28,7 @@ const NAME_COL_W = "w-[300px] shrink-0";
 export function ProjectsOverview() {
     const [projects, setProjects] = useState<MikeProject[]>([]);
     const [loading, setLoading] = useState(true);
+    const [fetchError, setFetchError] = useState<string | null>(null);
     const [modalOpen, setModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<Tab>("all");
     const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -42,11 +43,22 @@ export function ProjectsOverview() {
     const router = useRouter();
     const { user } = useAuth();
 
-    useEffect(() => {
+    const fetchProjects = () => {
+        setLoading(true);
+        setFetchError(null);
         listProjects()
-            .then(setProjects)
-            .catch(() => setProjects([]))
+            .then((data) => { setProjects(data); setFetchError(null); })
+            .catch((err) => {
+                console.error("[ProjectsOverview] listProjects failed:", err);
+                setFetchError(String(err?.message ?? err));
+                setProjects([]);
+            })
             .finally(() => setLoading(false));
+    };
+
+    useEffect(() => {
+        fetchProjects();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {
@@ -187,6 +199,13 @@ export function ProjectsOverview() {
                         placeholder="Search projects…"
                     />
                     <button
+                        onClick={fetchProjects}
+                        title="Refresh projects"
+                        className="flex items-center justify-center p-1.5 text-gray-500 hover:text-gray-900 transition-colors"
+                    >
+                        <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                    </button>
+                    <button
                         onClick={() => setModalOpen(true)}
                         className="flex items-center justify-center p-1.5 text-gray-500 hover:text-gray-900 transition-colors"
                     >
@@ -265,7 +284,23 @@ export function ProjectsOverview() {
                     </div>
                 ) : filtered.length === 0 ? (
                     <div className="flex flex-col items-start py-24 w-full max-w-xs mx-auto">
-                        {activeTab === "all" || activeTab === "mine" ? (
+                        {fetchError ? (
+                            <>
+                                <FolderOpen className="h-8 w-8 text-red-300 mb-4" />
+                                <p className="text-sm font-medium text-gray-700">
+                                    Failed to load projects
+                                </p>
+                                <p className="mt-1 text-xs text-red-500 max-w-xs break-words">
+                                    {fetchError}
+                                </p>
+                                <button
+                                    onClick={fetchProjects}
+                                    className="mt-4 inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-700 transition-colors shadow-md"
+                                >
+                                    Retry
+                                </button>
+                            </>
+                        ) : activeTab === "all" || activeTab === "mine" ? (
                             <>
                                 <FolderOpen className="h-8 w-8 text-gray-300 mb-4" />
                                 <p className="text-2xl font-medium font-serif text-gray-900">
@@ -434,6 +469,7 @@ export function ProjectsOverview() {
                 onClose={() => setModalOpen(false)}
                 onCreated={(p) => {
                     setProjects((prev) => [p, ...prev]);
+                    router.refresh();
                     router.push(`/projects/${p.id}`);
                 }}
             />
