@@ -40,20 +40,29 @@ export function ProjectsOverview() {
     const [search, setSearch] = useState("");
     const [ownerOnlyAction, setOwnerOnlyAction] = useState<string | null>(null);
     const actionsRef = useRef<HTMLDivElement>(null);
+    const fetchSeqRef = useRef(0);
     const router = useRouter();
     const { user } = useAuth();
 
     const fetchProjects = () => {
+        const seq = ++fetchSeqRef.current;
         setLoading(true);
         setFetchError(null);
         listProjects()
-            .then((data) => { setProjects(data); setFetchError(null); })
+            .then((data) => {
+                if (fetchSeqRef.current !== seq) return;
+                setProjects(data);
+                setFetchError(null);
+            })
             .catch((err) => {
+                if (fetchSeqRef.current !== seq) return;
                 console.error("[ProjectsOverview] listProjects failed:", err);
                 setFetchError(String(err?.message ?? err));
                 setProjects([]);
             })
-            .finally(() => setLoading(false));
+            .finally(() => {
+                if (fetchSeqRef.current === seq) setLoading(false);
+            });
     };
 
     useEffect(() => {
@@ -467,10 +476,8 @@ export function ProjectsOverview() {
             <NewProjectModal
                 open={modalOpen}
                 onClose={() => setModalOpen(false)}
-                onCreated={(p) => {
-                    setProjects((prev) => [p, ...prev]);
-                    router.refresh();
-                    router.push(`/projects/${p.id}`);
+                onCreated={() => {
+                    fetchProjects();
                 }}
             />
 
