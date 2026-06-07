@@ -401,8 +401,12 @@ chatRouter.post("/", requireAuth, async (req, res) => {
         });
     }
 
+    // Memory scope: project chats share memory within the project;
+    // standalone chats keep their own isolated scope.
+    const memoryScope = project_id ? `project_${project_id}` : `chat_${chatId}`;
+
     const userQuery = lastUser?.content ?? "";
-    const relevantMemories = await searchMemories(userQuery, `chat_${chatId}`);
+    const relevantMemories = await searchMemories(userQuery, memoryScope);
     const memoryExtra =
         relevantMemories.length > 0
             ? `\n\nUSER MEMORY (facts remembered from past sessions):\n${relevantMemories.map((m) => `- ${m}`).join("\n")}`
@@ -479,7 +483,7 @@ chatRouter.post("/", requireAuth, async (req, res) => {
                     { role: "user", content: lastUser.content },
                     { role: "assistant", content: fullText ?? "" },
                 ],
-                `chat_${chatId}`,
+                memoryScope,
             ).catch(() => {});
         }
 
