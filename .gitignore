@@ -35,3 +35,4 @@ docker-volumes/
 
 # Persistent data folders (bind mounts) — keep .gitkeep, ignore contents
 supabase/postgres/data/pgdata/
+supabase/postgres/data/
