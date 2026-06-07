@@ -434,7 +434,6 @@ export function ProjectsOverview() {
                 onClose={() => setModalOpen(false)}
                 onCreated={(p) => {
                     setProjects((prev) => [p, ...prev]);
-                    router.push(`/projects/${p.id}`);
                 }}
             />
 
