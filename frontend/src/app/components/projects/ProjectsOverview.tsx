@@ -28,6 +28,8 @@ const NAME_COL_W = "w-[300px] shrink-0";
 export function ProjectsOverview() {
     const [projects, setProjects] = useState<MikeProject[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshKey, setRefreshKey] = useState(0);
+    const fetchSeqRef = useRef(0);
     const [modalOpen, setModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<Tab>("all");
     const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -43,11 +45,13 @@ export function ProjectsOverview() {
     const { user } = useAuth();
 
     useEffect(() => {
+        const seq = ++fetchSeqRef.current;
+        setLoading(true);
         listProjects()
-            .then(setProjects)
-            .catch(() => setProjects([]))
-            .finally(() => setLoading(false));
-    }, []);
+            .then((data) => { if (fetchSeqRef.current === seq) setProjects(data); })
+            .catch(() => { if (fetchSeqRef.current === seq) setProjects([]); })
+            .finally(() => { if (fetchSeqRef.current === seq) setLoading(false); });
+    }, [refreshKey]);
 
     useEffect(() => {
         setSelectedIds([]);
@@ -432,8 +436,8 @@ export function ProjectsOverview() {
             <NewProjectModal
                 open={modalOpen}
                 onClose={() => setModalOpen(false)}
-                onCreated={(p) => {
-                    setProjects((prev) => [p, ...prev]);
+                onCreated={() => {
+                    setRefreshKey((k) => k + 1);
                 }}
             />
 
