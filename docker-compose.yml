@@ -1,26 +1,649 @@
+# =============================================================================
+# Mike — Enterprise AI Platform
+# =============================================================================
+# Profiles:
+#   (none)             → core app + shared infrastructure (always starts)
+#   --profile ai       → Qdrant, RAG, Mem0, MLflow, Ollama, Open WebUI
+#   --profile data     → Apache Airflow, Spark, Livy
+#   --profile bi       → Apache Superset
+#   --profile security → Keycloak SSO, Nginx reverse proxy
+#
+# Quick start:
+#   make up               # core only
+#   make up-ai            # core + AI stack
+#   make up-full          # everything
+# =============================================================================
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9.3-python3.11
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-mike}:${POSTGRES_PASSWORD:-mike_secret}@postgres:5432/airflow
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-mike}:${POSTGRES_PASSWORD:-mike_secret}@postgres:5432/airflow
+    AIRFLOW__CELERY__BROKER_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/0
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    LIVY_URL: http://livy:8998
+    QDRANT_URL: http://qdrant:6333
+    MLFLOW_TRACKING_URI: http://mlflow:5000
+    RAG_SERVICE_URL: http://rag-service:8001
+    _PIP_ADDITIONAL_REQUIREMENTS: apache-airflow-providers-apache-spark apache-airflow-providers-http requests
+  volumes:
+    - ./services/airflow/dags:/opt/airflow/dags
+    - airflow-logs:/opt/airflow/logs
+  user: "${AIRFLOW_UID:-50000}:0"
+  networks:
+    - data-network
+
+networks:
+  mike-network:
+    driver: bridge
+  ai-network:
+    driver: bridge
+  data-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  minio-data:
+  qdrant-data:
+  redis-data:
+  ollama-data:
+  superset-data:
+  airflow-logs:
+  open-webui-data:
+  spark-data:
+
 services:
+
+  # ===========================================================================
+  # CORE — Mike application (always on)
+  # ===========================================================================
+
   mike-backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      target: development
     container_name: mike_backend
     ports:
-      - "3001:3001"
+      - "${BACKEND_PORT:-3001}:3001"
     env_file: ./backend/.env
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      RAG_SERVICE_URL: http://rag-service:8001
+      MEM0_SERVICE_URL: http://mem0-service:8002
+      MLFLOW_TRACKING_URI: http://mlflow:5000
     volumes:
-      - ./backend:/app
-      - /app/node_modules
+      - ./backend/src:/app/src:ro
+    networks:
+      - mike-network
+      - ai-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
 
   mike-frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: development
     container_name: mike_frontend
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
     env_file: ./frontend/.env.local
     volumes:
-      - ./frontend:/app
-      - /app/node_modules
+      - ./frontend/src:/app/src:ro
+    networks:
+      - mike-network
     depends_on:
+      mike-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    logging: *default-logging
+
+  # ===========================================================================
+  # INFRASTRUCTURE — Shared services (always on)
+  # ===========================================================================
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: mike_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mike}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mike_secret}
+      POSTGRES_DB: mike
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres/init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - mike-network
+      - data-network
+      - ai-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mike} -d mike"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    container_name: mike_redis
+    command: >
+      redis-server
+      --save 20 1
+      --loglevel warning
+      --requirepass ${REDIS_PASSWORD:-redis_secret}
+    volumes:
+      - redis-data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    networks:
+      - mike-network
+      - data-network
+      - ai-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_secret}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging: *default-logging
+
+  minio:
+    image: minio/minio:latest
+    container_name: mike_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin_secret}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    networks:
+      - mike-network
+      - ai-network
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    logging: *default-logging
+
+  # ===========================================================================
+  # AI STACK — Vector DB · RAG · Mem0 · MLflow · Ollama · Open WebUI
+  # Start with: docker compose --profile ai up
+  # ===========================================================================
+
+  qdrant:
+    image: qdrant/qdrant:v1.10.1
+    container_name: mike_qdrant
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT__LOG_LEVEL: INFO
+    volumes:
+      - qdrant-data:/qdrant/storage
+    ports:
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    networks:
+      - ai-network
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:6333/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: [ai]
+
+  rag-service:
+    build:
+      context: ./services/rag
+      dockerfile: Dockerfile
+    container_name: mike_rag
+    ports:
+      - "${RAG_PORT:-8001}:8001"
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      QDRANT_COLLECTION: ${QDRANT_COLLECTION:-mike_docs}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      RAG_TOP_K: ${RAG_TOP_K:-5}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    networks:
+      - ai-network
+      - mike-network
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: [ai]
+
+  mem0-service:
+    build:
+      context: ./services/mem0
+      dockerfile: Dockerfile
+    container_name: mike_mem0
+    ports:
+      - "${MEM0_PORT:-8002}:8002"
+    environment:
+      POSTGRES_URL: postgresql://${POSTGRES_USER:-mike}:${POSTGRES_PASSWORD:-mike_secret}@postgres:5432/mike
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    networks:
+      - ai-network
+      - mike-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: [ai]
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.14.3
+    container_name: mike_mlflow
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        pip install psycopg2-binary boto3 --quiet &&
+        mlflow server \
+          --backend-store-uri postgresql://${POSTGRES_USER:-mike}:${POSTGRES_PASSWORD:-mike_secret}@postgres:5432/mlflow \
+          --default-artifact-root s3://mlflow/ \
+          --host 0.0.0.0 \
+          --port 5000
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin_secret}
+    ports:
+      - "${MLFLOW_PORT:-5000}:5000"
+    networks:
+      - ai-network
+      - data-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: [ai]
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: mike_ollama
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    networks:
+      - ai-network
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: [ai]
+    # Uncomment for NVIDIA GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: mike_open_webui
+    ports:
+      - "${OPEN_WEBUI_PORT:-3002}:8080"
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-change-me-in-production-32chars}
+      ENABLE_SIGNUP: ${OPEN_WEBUI_ENABLE_SIGNUP:-true}
+      DEFAULT_USER_ROLE: user
+    volumes:
+      - open-webui-data:/app/backend/data
+    networks:
+      - ai-network
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: [ai]
+
+  # ===========================================================================
+  # DATA ENGINEERING — Apache Airflow · Spark · Livy
+  # Start with: docker compose --profile data up
+  # ===========================================================================
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: mike_airflow_init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate &&
+        airflow users create \
+          --username ${AIRFLOW_USER:-admin} \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@mike.local \
+          --password ${AIRFLOW_PASSWORD:-admin} || true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+    profiles: [data]
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: mike_airflow_webserver
+    command: webserver
+    ports:
+      - "${AIRFLOW_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    profiles: [data]
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: mike_airflow_scheduler
+    command: scheduler
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    profiles: [data]
+
+  airflow-worker:
+    <<: *airflow-common
+    container_name: mike_airflow_worker
+    command: celery worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    profiles: [data]
+
+  spark-master:
+    image: bitnami/spark:3.5
+    container_name: mike_spark_master
+    environment:
+      SPARK_MODE: master
+      SPARK_MASTER_WEBUI_PORT: 8090
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_RPC_ENCRYPTION_ENABLED: "no"
+      SPARK_LOCAL_STORAGE_ENCRYPTION_ENABLED: "no"
+      SPARK_SSL_ENABLED: "no"
+    ports:
+      - "${SPARK_WEB_PORT:-8090}:8090"
+      - "${SPARK_MASTER_PORT:-7077}:7077"
+    volumes:
+      - spark-data:/opt/bitnami/spark/data
+    networks:
+      - data-network
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8090"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: [data]
+
+  spark-worker:
+    image: bitnami/spark:3.5
+    container_name: mike_spark_worker
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_WORKER_MEMORY: ${SPARK_WORKER_MEMORY:-2G}
+      SPARK_WORKER_CORES: ${SPARK_WORKER_CORES:-2}
+      SPARK_RPC_AUTHENTICATION_ENABLED: "no"
+      SPARK_RPC_ENCRYPTION_ENABLED: "no"
+    networks:
+      - data-network
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: [data]
+
+  livy:
+    build:
+      context: ./services/livy
+      dockerfile: Dockerfile
+    container_name: mike_livy
+    environment:
+      SPARK_MASTER: spark://spark-master:7077
+    ports:
+      - "${LIVY_PORT:-8998}:8998"
+    networks:
+      - data-network
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8998/sessions"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: [data]
+
+  # ===========================================================================
+  # BI — Apache Superset
+  # Start with: docker compose --profile bi up
+  # ===========================================================================
+
+  superset-init:
+    image: apache/superset:4.1.1
+    container_name: mike_superset_init
+    command: >
+      /bin/sh -c "
+        superset db upgrade &&
+        superset fab create-admin
+          --username ${SUPERSET_ADMIN_USER:-admin}
+          --firstname Admin
+          --lastname User
+          --email admin@mike.local
+          --password ${SUPERSET_ADMIN_PASSWORD:-admin} || true &&
+        superset init
+      "
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-change-me-in-production-32chars}
+      SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://${POSTGRES_USER:-mike}:${POSTGRES_PASSWORD:-mike_secret}@postgres:5432/superset
+    volumes:
+      - ./services/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+    networks:
+      - ai-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    profiles: [bi]
+
+  superset:
+    image: apache/superset:4.1.1
+    container_name: mike_superset
+    command: superset run -h 0.0.0.0 -p 8088 --with-threads --reload --debugger
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-change-me-in-production-32chars}
+      SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://${POSTGRES_USER:-mike}:${POSTGRES_PASSWORD:-mike_secret}@postgres:5432/superset
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis_secret}@redis:6379/1
+    volumes:
+      - superset-data:/app/superset_home
+      - ./services/superset/superset_config.py:/app/pythonpath/superset_config.py:ro
+    ports:
+      - "${SUPERSET_PORT:-8088}:8088"
+    networks:
+      - ai-network
+      - mike-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      superset-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8088/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: [bi]
+
+  # ===========================================================================
+  # SECURITY — Keycloak SSO · Nginx Reverse Proxy
+  # Start with: docker compose --profile security up
+  # ===========================================================================
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: mike_keycloak
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: ${POSTGRES_USER:-mike}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:-mike_secret}
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:-localhost}
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "${KEYCLOAK_PORT:-8443}:8080"
+    networks:
+      - mike-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: [security]
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: mike_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - mike-network
+      - ai-network
+    depends_on:
+      - mike-frontend
       - mike-backend
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    logging: *default-logging
+    profiles: [security]
