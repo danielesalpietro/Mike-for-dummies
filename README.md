@@ -1,68 +1,260 @@
-# Mike
+# Mike — Enterprise AI Platform
 
-Open-source release containing the Mike frontend and backend.
-
-## Contents
-
-- `frontend/` - Next.js application
-- `backend/` - Express API, Supabase access, document processing, and migrations
-- `backend/migrations/000_one_shot_schema.sql` - one-shot Supabase schema for fresh databases
-
-## Setup
-
-# 🚀 Mike-for-dummies
-
-**The 60-second Dockerized version of Mike Legal Assistant.** This repository provides a streamlined, containerized setup of the original Mike project. No need to manually install Node.js, LibreOffice, or manage complex environment variables—just Docker and a simple wizard.
+**Mike** è un assistente AI open-source per la gestione documentale, esteso in questa versione a una piattaforma enterprise completa. Ogni componente gira in Docker: nessuna dipendenza da installare sulla macchina host.
 
 ---
 
-## 🏗️ Quick Start
+## Architettura
 
-This version is designed to get you up and running without touching a single line of code.
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Nginx (porta 80)                         │
+│              Reverse proxy unificato per tutti i servizi        │
+└────────┬────────┬────────┬──────────┬──────────┬───────────────┘
+         │        │        │          │          │
+    ┌────▼───┐ ┌──▼──┐ ┌───▼───┐ ┌───▼───┐ ┌────▼─────┐
+    │ Mike   │ │Open │ │Airflow│ │Supers.│ │Keycloak  │
+    │Frontend│ │WebUI│ │  :80  │ │ :8088 │ │  SSO     │
+    │  :3000 │ │:3002│ │       │ │       │ │  :8443   │
+    └────┬───┘ └──┬──┘ └───┬───┘ └───────┘ └──────────┘
+         │        │        │
+    ┌────▼───┐ ┌──▼────┐ ┌─▼──────────┐
+    │ Mike   │ │Ollama │ │Spark Master│
+    │Backend │ │:11434 │ │  + Worker  │
+    │  :3001 │ └───────┘ └─┬──────────┘
+    └────┬───┘             │
+         │              ┌──▼───┐
+    ┌────▼───────────────────────────────────────────┐
+    │              Livello Dati & AI                  │
+    │                                                 │
+    │  PostgreSQL  Redis   MinIO   Qdrant   MLflow    │
+    │    :5432     :6379   :9000   :6333    :5000     │
+    │                                                 │
+    │        RAG Service      Mem0 Service            │
+    │           :8001            :8002                │
+    └─────────────────────────────────────────────────┘
+```
 
-### 1. Configure
-Run the intelligent setup wizard. It will help you input your API keys (Supabase, R2, Gemini/Anthropic), fix common URL formatting errors, and create your `.env` files automatically.
+### I cinque livelli
+
+| Livello | Componenti | Scopo |
+|---|---|---|
+| **Applicazione** | Mike Frontend + Backend | UI documentale, chat AI, workflow |
+| **AI** | Qdrant · RAG · Mem0 · MLflow · Ollama · Open WebUI | Retrieval, memoria utente, LLM locale, governance modelli |
+| **Data Engineering** | Airflow · Spark · Livy | Orchestrazione pipeline, ETL su larga scala, job Spark via REST |
+| **BI** | Apache Superset | Dashboard, Text-to-SQL, analisi quantitativa |
+| **Sicurezza** | Keycloak SSO · Nginx | Autenticazione centralizzata, reverse proxy unificato |
+
+---
+
+## Quick Start
+
+### Requisiti
+
+- Docker Engine 24+ e Docker Compose v2
+- Python 3.8+ (solo per il wizard di setup)
+- 8 GB RAM (16 GB consigliati per il profilo `full`)
+
+### 1. Configura
+
 ```bash
 python setup.py
 ```
 
-### 2. Launch
-Start the entire stack (Frontend + Backend) with one command:
+Il wizard crea `backend/.env`, `frontend/.env.local` e `.env` (root). Gestisce:
+- Credenziali Supabase (auth + DB hosted per Mike)
+- Scelta storage: **MinIO locale** (default, nessun account) o **Cloudflare R2**
+- Chiavi LLM (Anthropic, Gemini, OpenRouter)
+- Secret auto-generati per Redis, Superset, Airflow, Keycloak, Open WebUI
+
+### 2. Avvia
 
 ```bash
-docker-compose up --build
+make up          # solo Mike (frontend + backend + postgres + redis + minio)
+make up-ai       # + stack AI (Qdrant · RAG · Mem0 · MLflow · Ollama · Open WebUI)
+make up-data     # + data engineering (Airflow · Spark · Livy)
+make up-bi       # + BI (Superset)
+make up-full     # tutto insieme
 ```
 
-### 3. Access
-Open your browser at: http://localhost:3000
+Dopo `make up-ai`, scarica un modello LLM in Ollama:
 
-## 🌟 Why this version?
-Zero Dependency: LibreOffice (for document conversion) and Node.js are bundled inside the Docker containers. Your host machine stays clean.
+```bash
+make ollama-pull          # scarica llama3.2 (default)
+# oppure manualmente:
+docker exec mike_ollama ollama pull mistral
+```
 
-Smart Setup: The setup.py script handles the configuration for you, including automatic backups of your existing settings.
+### 3. Accedi
 
-Community Ready: Built for those who want to test Mike immediately without the "dependency hell."
+| Servizio | URL | Credenziali default |
+|---|---|---|
+| **Mike** | http://localhost:3000 | via Supabase |
+| **Open WebUI** (chat LLM) | http://localhost:3002 | primo signup |
+| **Airflow** | http://localhost:8080 | admin / admin |
+| **Superset** | http://localhost:8088 | admin / admin |
+| **MLflow** | http://localhost:5000 | — |
+| **Keycloak SSO** | http://localhost:8443 | admin / admin |
+| **MinIO Console** | http://localhost:9001 | minioadmin / minioadmin_secret |
+| **Spark UI** | http://localhost:8090 | — |
+| **Qdrant UI** | http://localhost:6333/dashboard | — |
 
-## 🛠️ Requirements
-To use this Dockerized version, you still need the original external services:
+Tutti i servizi sono raggiungibili anche attraverso Nginx su `http://localhost`.
 
-Supabase: For Auth and Database.
+---
 
-Cloudflare R2: For S3-compatible document storage.
+## Come funziona la catena RAG
 
-LLM Provider: API keys for Gemini or Anthropic.
+```
+Utente → Mike UI
+           │
+           ▼
+    RAG Service (:8001)
+           │  cerca in
+           ▼
+        Qdrant (:6333)  ←── Airflow DAG indicizza i documenti di Mike
+           │
+           │  restituisce chunk rilevanti
+           ▼
+     Mem0 Service (:8002)  ←── aggiunge preferenze/storico dell'utente
+           │
+           ▼
+        LLM (Ollama / Anthropic / Gemini)
+           │
+           ▼
+    Risposta personalizzata, ancorata ai dati aziendali
+```
 
-## 📂 Credits & License
-This is a Dockerized distribution of the original Mike project. All credits for the application logic go to the original authors.
+1. **Airflow** schedula il DAG `document_ingestion` (ogni ora): legge i documenti dal DB, li spezza in chunk e li inserisce in **Qdrant** tramite il **RAG Service**.
+2. Quando l'utente fa una domanda, il **RAG Service** converte la query in un vettore (sentence-transformers) e recupera i passage più simili.
+3. **Mem0** aggiunge al contesto le preferenze persistenti dell'utente (es. "preferisco i report in formato tabellare").
+4. Il bundle — documenti recuperati + memoria + domanda — viene inviato all'LLM.
+5. **MLflow** traccia le versioni dei modelli di embedding e degli LLM usati.
 
-Dockerization & Wizard by: danielesalpietro
+---
 
+## Struttura del repository
 
-## 🚀 Roadmap (Coming Soon)
-Local-First Version: Integration with local LLMs (NVIDIA NIM/Ollama) to keep legal data 100% private.
+```
+Mike-for-dummies/
+├── docker-compose.yml          # definizione di tutti i servizi (con profili)
+├── .env.example                # template variabili d'ambiente
+├── Makefile                    # comandi di avvio/stop
+├── setup.py                    # wizard di configurazione interattivo
+│
+├── backend/                    # Express/TypeScript API
+│   └── Dockerfile              # multi-stage: development · builder · production
+│
+├── frontend/                   # Next.js 16 UI
+│   └── Dockerfile              # multi-stage: development · builder · production
+│
+├── infra/
+│   └── postgres/
+│       └── init-multiple-dbs.sh  # crea airflow/mlflow/superset/keycloak al primo avvio
+│
+├── nginx/
+│   └── nginx.conf              # reverse proxy (+ blocco HTTPS commentato)
+│
+└── services/
+    ├── rag/                    # FastAPI: embed → upsert Qdrant · semantic search
+    │   ├── main.py
+    │   ├── Dockerfile
+    │   └── requirements.txt
+    ├── mem0/                   # FastAPI: memoria personalizzata per utente (mem0ai)
+    │   ├── main.py
+    │   ├── Dockerfile
+    │   └── requirements.txt
+    ├── livy/                   # Apache Livy 0.8 — REST API per Spark
+    │   ├── Dockerfile
+    │   └── livy.conf
+    ├── airflow/
+    │   └── dags/
+    │       └── document_ingestion.py  # DAG: chunk + embed + ingest in Qdrant
+    └── superset/
+        └── superset_config.py  # Redis cache, RBAC, embedded charts
+```
 
-Obsidian Support: Native Markdown (.md) support to bridge the gap between notes and case files.
+---
 
-## License
+## Profili Docker Compose
 
-AGPL-3.0-only. See `LICENSE`.
+I servizi sono organizzati in profili attivabili selettivamente:
+
+```bash
+docker compose --profile ai up -d
+docker compose --profile data up -d
+docker compose --profile bi up -d
+docker compose --profile security up -d
+
+# combinazioni
+docker compose --profile ai --profile bi up -d
+```
+
+I servizi **senza profilo** (Mike frontend/backend, PostgreSQL, Redis, MinIO) partono sempre.
+
+---
+
+## Configurazione avanzata
+
+### GPU (Ollama)
+
+Decommentare il blocco `deploy` nel servizio `ollama` di `docker-compose.yml`:
+
+```yaml
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: all
+          capabilities: [gpu]
+```
+
+### HTTPS (Nginx)
+
+1. Inserire `cert.pem` e `key.pem` in `nginx/ssl/`
+2. Decommentare il blocco `server { listen 443 ssl ... }` in `nginx/nginx.conf`
+3. `docker compose --profile security restart nginx`
+
+### Modello di embedding
+
+Il modello `sentence-transformers/all-MiniLM-L6-v2` è scaricato nella build Docker. Per cambiarlo:
+
+```bash
+EMBEDDING_MODEL=sentence-transformers/all-mpnet-base-v2 docker compose --profile ai up -d
+```
+
+### Porte personalizzate
+
+Tutte le porte sono configurabili nel file `.env` (vedere `.env.example`).
+
+---
+
+## Requisiti esterni
+
+Mike usa Supabase per autenticazione e database applicativo. Questi servizi **non** vengono sostituiti da questa distribuzione:
+
+- **Supabase** — Auth + PostgreSQL hosted per Mike (gratuito fino a 500 MB)
+- **Chiave LLM** — Anthropic, Gemini, o OpenRouter (oppure solo Ollama locale)
+
+Tutti gli altri componenti (PostgreSQL per i servizi enterprise, Redis, MinIO, Qdrant, ecc.) sono inclusi e girano in locale.
+
+---
+
+## Comandi utili
+
+```bash
+make help           # mostra tutti i comandi disponibili
+make ps             # stato dei container
+make logs           # tail log in tempo reale
+make down           # ferma i servizi core
+make down-full      # ferma tutto
+make clean          # rimuove container e immagini dangling
+make clean-volumes  # ATTENZIONE: elimina tutti i dati persistenti
+```
+
+---
+
+## Licenza
+
+AGPL-3.0-only. Vedere `LICENSE`.
